@@ -1,0 +1,17 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "unrealvoxelsim-testbed-qt",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "entt",
+    {
+      "name": "qtbase",
+      "default-features": false,
+      "features": [
+        "gui",
+        "opengl",
+        "widgets"
+      ]
+    }
+  ]
+}
