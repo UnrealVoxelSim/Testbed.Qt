@@ -8,6 +8,7 @@
 #include "UnrealVoxelSim/Navigation/Api/ICommandSink.h"
 #include "UnrealVoxelSim/Navigation/Api/IExecutionReader.h"
 #include "UnrealVoxelSim/Simulation/Api/IStepper.h"
+#include "UnrealVoxelSim/Simulation/Api/TickCount.h"
 #include "UnrealVoxelSim/Voxel/Api/IBounds.h"
 #include "UnrealVoxelSim/Voxel/Api/Offset.h"
 #include "UnrealVoxelSim/Voxel/Rendering/Api/Mesh.h"
@@ -67,6 +68,7 @@ class Viewport final : public QOpenGLWidget, protected QOpenGLFunctions_3_3_Core
     void SetMaterial(UnrealVoxelSim::Voxel::Solid::Api::MaterialId material) noexcept;
     void SetRenderDistance(int distance) noexcept;
     void SetDiagnosticsSink(std::function<void(const QString &)> sink);
+    void SetSimulationBacklog(UnrealVoxelSim::Simulation::Api::TickCount pending) noexcept;
     void ReportStatus(QString status);
     void Tick();
 
@@ -187,6 +189,7 @@ class Viewport final : public QOpenGLWidget, protected QOpenGLFunctions_3_3_Core
     QElapsedTimer MovementClock_;
     QElapsedTimer FrameClock_;
     std::size_t FrameCount_{};
+    UnrealVoxelSim::Simulation::Api::TickCount PendingSimulationTicks_{};
     std::uint64_t NavigationSequence_{};
     std::uint64_t NavigationExecution_{};
     std::uint64_t SolidSequence_{};

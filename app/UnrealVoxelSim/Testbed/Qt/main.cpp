@@ -25,8 +25,9 @@
 #include <QTimer>
 
 #include <array>
-#include <cstdint>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <vector>
 
 int main(int argc, char *argv[])
@@ -99,7 +100,13 @@ int main(int argc, char *argv[])
 
     UnrealVoxelSim::Voxel::Solid::Navigation::Environment navigationEnvironment{field, solids};
     UnrealVoxelSim::Voxel::Solid::Commands::Queue solidCommands{solids};
-    UnrealVoxelSim::Navigation::Voxel::Planner planner{navigationEnvironment, movementProfiles};
+    constexpr std::size_t fineExpansionsPerTick = 64;
+    constexpr std::size_t componentExpansionsPerTick = 4;
+    UnrealVoxelSim::Navigation::Voxel::Planner planner{
+        navigationEnvironment, movementProfiles, fineExpansionsPerTick,
+        UnrealVoxelSim::Navigation::Voxel::Planner::DefaultMaximumExpansionsPerRequest,
+        componentExpansionsPerTick,
+        UnrealVoxelSim::Navigation::Voxel::Planner::DefaultTileBuildsPerTopologyUpdate};
     constexpr std::array initialNavigationRegions{
         UnrealVoxelSim::Voxel::Api::Region{{-96, -96, -8}, {96, 96, 7}}};
     planner.Prepare(initialNavigationRegions);

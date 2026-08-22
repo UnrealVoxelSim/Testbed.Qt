@@ -149,6 +149,11 @@ void Viewport::SetDiagnosticsSink(std::function<void(const QString &)> sink)
     DiagnosticsSink_ = std::move(sink);
 }
 
+void Viewport::SetSimulationBacklog(const UnrealVoxelSim::Simulation::Api::TickCount pending) noexcept
+{
+    PendingSimulationTicks_ = pending;
+}
+
 void Viewport::ReportStatus(QString status)
 {
     Status_ = std::move(status);
@@ -848,9 +853,10 @@ void Viewport::PublishDiagnostics(const std::size_t visibleTiles, const std::siz
         case UnrealVoxelSim::Navigation::Api::ExecutionState::Cancelled: navigation = "cancelled"; break;
         }
     }
-    DiagnosticsSink_(QString{"%1 FPS | tick %2 | nav %3 | tiles %4/%5 | rebuild %6 queued, %7 active | draws %8 | triangles %9 | %10"}
+    DiagnosticsSink_(QString{"%1 FPS | tick %2 | lag %3 ticks | nav %4 | tiles %5/%6 | rebuild %7 queued, %8 active | draws %9 | triangles %10 | %11"}
                          .arg(framesPerSecond, 0, 'f', 1)
                          .arg(Simulation_.CurrentTick().Value())
+                         .arg(PendingSimulationTicks_.Value())
                          .arg(navigation)
                          .arg(visibleTiles)
                          .arg(Tiles_.size())

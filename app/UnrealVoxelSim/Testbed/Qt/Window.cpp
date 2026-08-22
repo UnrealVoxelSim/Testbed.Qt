@@ -19,6 +19,10 @@
 
 namespace UnrealVoxelSim::Testbed::Qt
 {
+namespace
+{
+constexpr Simulation::Api::TickCount MaximumTicksPerUiCallback{1};
+}
 
 Window::Window(UnrealVoxelSim::Simulation::Api::IPacer &pacer,
                UnrealVoxelSim::Simulation::Api::IStepper &stepper,
@@ -112,9 +116,11 @@ Window::Window(UnrealVoxelSim::Simulation::Api::IPacer &pacer,
     connect(timer, &QTimer::timeout, this, [this] {
         const auto elapsed = std::chrono::nanoseconds{SimulationClock_.nsecsElapsed()};
         SimulationClock_.restart();
-        const auto result = Pacer_.Advance(elapsed, UnrealVoxelSim::Simulation::Api::TickCount{5000});
+        const auto result = Pacer_.Advance(elapsed, MaximumTicksPerUiCallback);
         if (!result)
             Viewport_->ReportStatus("Simulation pacing failed");
+        else
+            Viewport_->SetSimulationBacklog(result->Pending);
         Viewport_->Tick();
     });
     SimulationClock_.start();
