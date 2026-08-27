@@ -83,4 +83,4 @@ class WorldCatalog final
                                                        Profiling::Api::IRecorder &profiling);
 };
 
-} // namespace UnrealVoxelSim::Testbed
+}

@@ -71,7 +71,7 @@ void main()
 }
 )";
 
-} // namespace
+}
 
 Viewport::Viewport(UnrealVoxelSim::Testbed::World &world,
                    UnrealVoxelSim::Profiling::Api::IRecorder &profiling, QWidget *parent)
@@ -929,4 +929,4 @@ void Viewport::PublishDiagnostics(const std::size_t visibleTiles, const std::siz
     m_FrameClock.restart();
 }
 
-} // namespace UnrealVoxelSim::Testbed::Qt
+}

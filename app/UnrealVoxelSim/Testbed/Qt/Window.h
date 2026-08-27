@@ -34,4 +34,4 @@ class Window final : public QMainWindow
     QLabel *m_RuntimeStatus{};
 };
 
-} // namespace UnrealVoxelSim::Testbed::Qt
+}

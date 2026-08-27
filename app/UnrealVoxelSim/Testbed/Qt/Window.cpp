@@ -205,4 +205,4 @@ void Window::BuildWorldUi()
     });
 }
 
-} // namespace UnrealVoxelSim::Testbed::Qt
+}

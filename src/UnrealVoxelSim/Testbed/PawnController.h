@@ -89,4 +89,4 @@ class PawnController final : public Simulation::Api::IDecisionUpdater
     std::uint64_t m_ExecutionSequence{};
 };
 
-} // namespace UnrealVoxelSim::Testbed
+}

@@ -4,6 +4,7 @@
 
 #include "UnrealVoxelSim/Ecs/Api/RegistryScopeId.h"
 #include "UnrealVoxelSim/Ecs/EnTT/Registry.h"
+#include "UnrealVoxelSim/Events/Api/IPublisher.h"
 #include "UnrealVoxelSim/Events/InMemory/Dispatcher.h"
 #include "UnrealVoxelSim/Movement/Api/GroundedProfile.h"
 #include "UnrealVoxelSim/Movement/Api/Scalar.h"
@@ -135,7 +136,7 @@ constexpr std::size_t ComponentExpansionsPerTick = 4;
         }
     return terrain;
 }
-} // namespace
+}
 
 class World::Impl final
 {
@@ -148,8 +149,11 @@ class World::Impl final
         constexpr std::array materials{Voxel::Solid::Api::StandardMaterials::Dirt,
                                        Voxel::Solid::Api::StandardMaterials::Grass,
                                        Voxel::Solid::Api::StandardMaterials::Stone};
-        Solids = std::make_unique<Voxel::Solid::Controller>(
-            *Field, *Field, *Field, materials, Dispatcher->CreateChannel<Voxel::Solid::Api::Changed>());
+        auto solidChanges = Dispatcher->CreateChannel<Voxel::Solid::Api::Changed>();
+        auto &solidChangePublisher =
+            static_cast<Events::Api::IPublisher<Voxel::Solid::Api::Changed> &>(*solidChanges);
+        Solids = std::make_unique<Voxel::Solid::Controller>(*Field, *Field, *Field, materials, std::move(solidChanges),
+                                                           solidChangePublisher);
         auto terrain = BuildTerrain(configuration);
         if (!Solids->Place(terrain)) throw std::runtime_error{"The initial solid terrain could not be created."};
 
@@ -321,4 +325,4 @@ std::unique_ptr<World> WorldCatalog::Create(const std::string_view id, Profiling
     return std::unique_ptr<World>{new World{std::make_unique<World::Impl>(*configuration, profiling)}};
 }
 
-} // namespace UnrealVoxelSim::Testbed
+}

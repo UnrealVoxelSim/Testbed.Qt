@@ -131,7 +131,7 @@ struct Result final
     UNREALVOXELSIM_PROFILE_PLOT(profiling, "Headless maximum steps per second", rates.back());
     return {rates.front(), rates[rates.size() / 2], rates.back()};
 }
-} // namespace
+}
 
 int main(const int argc, char *argv[])
 {

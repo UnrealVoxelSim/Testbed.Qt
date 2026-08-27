@@ -193,4 +193,4 @@ class Viewport final : public QOpenGLWidget, protected QOpenGLFunctions_3_3_Core
     UnrealVoxelSim::Events::Api::Subscription m_ChangesSubscription;
 };
 
-} // namespace UnrealVoxelSim::Testbed::Qt
+}

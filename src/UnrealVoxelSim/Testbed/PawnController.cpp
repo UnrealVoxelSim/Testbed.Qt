@@ -29,7 +29,7 @@ constexpr Simulation::Api::CommandSourceId AutonomousNavigationSource{3};
                ? std::numeric_limits<std::uint64_t>::max()
                : left + right;
 }
-} // namespace
+}
 
 PawnController::PawnController(Ecs::EnTT::Registry &entities, Movement::Api::ICommands &movement,
                                Navigation::Api::ICommandSink &navigationCommands,
@@ -235,4 +235,4 @@ void PawnController::RemovePawn()
     m_States.pop_back();
 }
 
-} // namespace UnrealVoxelSim::Testbed
+}
