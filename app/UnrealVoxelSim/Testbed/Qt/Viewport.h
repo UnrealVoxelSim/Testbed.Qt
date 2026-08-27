@@ -1,21 +1,16 @@
 #pragma once
 
-#include "BrushMode.h"
+#include "Tool.h"
+
+#include "UnrealVoxelSim/Testbed/World.h"
 
 #include "UnrealVoxelSim/Events/Api/Subscription.h"
 #include "UnrealVoxelSim/Ecs/Api/EntityId.h"
-#include "UnrealVoxelSim/Movement/Api/IReader.h"
-#include "UnrealVoxelSim/Navigation/Api/ICommandSink.h"
-#include "UnrealVoxelSim/Navigation/Api/IExecutionReader.h"
-#include "UnrealVoxelSim/Simulation/Api/IStepper.h"
+#include "UnrealVoxelSim/Profiling/Api/IRecorder.h"
 #include "UnrealVoxelSim/Simulation/Api/TickCount.h"
-#include "UnrealVoxelSim/Voxel/Api/IBounds.h"
 #include "UnrealVoxelSim/Voxel/Api/Offset.h"
 #include "UnrealVoxelSim/Voxel/Rendering/Api/Mesh.h"
 #include "UnrealVoxelSim/Voxel/Solid/Api/IChangeSource.h"
-#include "UnrealVoxelSim/Voxel/Solid/Api/ICommandSink.h"
-#include "UnrealVoxelSim/Voxel/Solid/Api/IReader.h"
-#include "UnrealVoxelSim/Voxel/Solid/Api/IRegionReader.h"
 #include "UnrealVoxelSim/Voxel/Solid/Rendering/BuildError.h"
 #include "UnrealVoxelSim/Voxel/Solid/Rendering/Sampler.h"
 
@@ -51,19 +46,11 @@ namespace UnrealVoxelSim::Testbed::Qt
 class Viewport final : public QOpenGLWidget, protected QOpenGLFunctions_3_3_Core
 {
   public:
-    Viewport(const UnrealVoxelSim::Voxel::Api::IBounds &bounds,
-             const UnrealVoxelSim::Voxel::Solid::Api::IReader &reader,
-             const UnrealVoxelSim::Voxel::Solid::Api::IRegionReader &regionReader,
-             UnrealVoxelSim::Voxel::Solid::Api::ICommandSink &commands,
-             UnrealVoxelSim::Voxel::Solid::Api::IChangeSource &changes,
-             UnrealVoxelSim::Simulation::Api::IStepper &simulation,
-             UnrealVoxelSim::Navigation::Api::ICommandSink &navigationCommands,
-             const UnrealVoxelSim::Navigation::Api::IExecutionReader &navigationExecutions,
-             const UnrealVoxelSim::Movement::Api::IReader &movement, UnrealVoxelSim::Ecs::Api::EntityId pawn,
+    Viewport(UnrealVoxelSim::Testbed::World &world, UnrealVoxelSim::Profiling::Api::IRecorder &profiling,
              QWidget *parent = nullptr);
     ~Viewport() override;
 
-    void SetBrushMode(BrushMode mode) noexcept;
+    void SetTool(Tool tool) noexcept;
     void SetBrushSize(int size) noexcept;
     void SetMaterial(UnrealVoxelSim::Voxel::Solid::Api::MaterialId material) noexcept;
     void SetRenderDistance(int distance) noexcept;
@@ -123,6 +110,12 @@ class Viewport final : public QOpenGLWidget, protected QOpenGLFunctions_3_3_Core
         UnrealVoxelSim::Voxel::Api::Offset Normal;
     };
 
+    struct Ray final
+    {
+        QVector3D Origin;
+        QVector3D Direction;
+    };
+
     struct GpuVertex final
     {
         float X{};
@@ -132,6 +125,13 @@ class Viewport final : public QOpenGLWidget, protected QOpenGLFunctions_3_3_Core
         float NormalY{};
         float NormalZ{};
         std::uint32_t Surface{};
+    };
+
+    struct GpuOffset final
+    {
+        float X{};
+        float Y{};
+        float Z{};
     };
 
     static constexpr std::int32_t TileEdge = 16;
@@ -144,6 +144,7 @@ class Viewport final : public QOpenGLWidget, protected QOpenGLFunctions_3_3_Core
     [[nodiscard]] QVector3D Forward() const noexcept;
     [[nodiscard]] QMatrix4x4 ViewProjection() const;
     [[nodiscard]] bool IsVisible(UnrealVoxelSim::Voxel::Api::Region region, const QMatrix4x4 &viewProjection) const;
+    [[nodiscard]] std::optional<Ray> ScreenRay(const QPoint &screenPosition) const;
     [[nodiscard]] std::optional<Hit> Raycast(const QPoint &screenPosition) const;
 
     void EnsureResidency();
@@ -153,49 +154,43 @@ class Viewport final : public QOpenGLWidget, protected QOpenGLFunctions_3_3_Core
     void Upload(Tile &tile, const UnrealVoxelSim::Voxel::Rendering::Api::Mesh &mesh);
     void DestroyGpu(Tile &tile) noexcept;
     void ApplyBrush(const QPoint &screenPosition);
+    void SelectPawn(const QPoint &screenPosition);
     void SubmitNavigation(const QPoint &screenPosition);
     void CreatePawnGpu();
-    void PublishDiagnostics(std::size_t visibleTiles, std::size_t drawCalls, std::size_t triangles);
+    void PublishDiagnostics(std::size_t visibleTiles, std::size_t visiblePawns, std::size_t drawCalls,
+                            std::size_t triangles);
 
-    const UnrealVoxelSim::Voxel::Api::IBounds &Bounds_;
-    const UnrealVoxelSim::Voxel::Solid::Api::IReader &Reader_;
-    const UnrealVoxelSim::Voxel::Solid::Api::IRegionReader &RegionReader_;
-    UnrealVoxelSim::Voxel::Solid::Api::ICommandSink &Commands_;
-    UnrealVoxelSim::Simulation::Api::IStepper &Simulation_;
-    UnrealVoxelSim::Navigation::Api::ICommandSink &NavigationCommands_;
-    const UnrealVoxelSim::Navigation::Api::IExecutionReader &NavigationExecutions_;
-    const UnrealVoxelSim::Movement::Api::IReader &Movement_;
-    UnrealVoxelSim::Ecs::Api::EntityId Pawn_;
-    UnrealVoxelSim::Voxel::Solid::Rendering::Sampler Sampler_;
-    std::unique_ptr<QOpenGLShaderProgram> Program_;
-    std::unordered_map<TileKey, Tile, TileKeyHash> Tiles_;
-    std::deque<TileKey> Dirty_;
-    std::vector<Job> Jobs_;
-    Tile PawnGpu_;
-    std::optional<TileKey> ResidencyCenter_;
-    std::int32_t ResidencyRadius_{};
-    std::unordered_set<int> Keys_;
-    QVector3D Camera_{40.0F, -48.0F, 35.0F};
-    float Yaw_{130.0F};
-    float Pitch_{-30.0F};
-    QPoint LastMouse_;
-    std::optional<UnrealVoxelSim::Voxel::Api::Position> LastBrushCell_;
-    BrushMode BrushMode_{BrushMode::Fill};
-    UnrealVoxelSim::Voxel::Solid::Api::MaterialId Material_{1};
-    int BrushSize_{1};
-    std::int32_t RenderDistance_{DefaultRenderDistance};
-    bool Looking_{};
-    bool Painting_{};
-    QElapsedTimer MovementClock_;
-    QElapsedTimer FrameClock_;
-    std::size_t FrameCount_{};
-    UnrealVoxelSim::Simulation::Api::TickCount PendingSimulationTicks_{};
-    std::uint64_t NavigationSequence_{};
-    std::uint64_t NavigationExecution_{};
-    std::uint64_t SolidSequence_{};
-    QString Status_{"Ready"};
-    std::function<void(const QString &)> DiagnosticsSink_;
-    UnrealVoxelSim::Events::Api::Subscription ChangesSubscription_;
+    UnrealVoxelSim::Testbed::World &m_World;
+    UnrealVoxelSim::Profiling::Api::IRecorder &m_Profiling;
+    UnrealVoxelSim::Voxel::Solid::Rendering::Sampler m_Sampler;
+    std::unique_ptr<QOpenGLShaderProgram> m_Program;
+    std::unordered_map<TileKey, Tile, TileKeyHash> m_Tiles;
+    std::deque<TileKey> m_Dirty;
+    std::vector<Job> m_Jobs;
+    Tile m_PawnGpu;
+    unsigned int m_PawnInstanceBuffer{};
+    std::optional<TileKey> m_ResidencyCenter;
+    std::int32_t m_ResidencyRadius{};
+    std::unordered_set<int> m_Keys;
+    QVector3D m_Camera{40.0F, -48.0F, 35.0F};
+    float m_Yaw{130.0F};
+    float m_Pitch{-30.0F};
+    QPoint m_LastMouse;
+    std::optional<UnrealVoxelSim::Voxel::Api::Position> m_LastBrushCell;
+    Tool m_Tool{Tool::Select};
+    std::optional<UnrealVoxelSim::Ecs::Api::EntityId> m_SelectedPawn;
+    UnrealVoxelSim::Voxel::Solid::Api::MaterialId m_Material{1};
+    int m_BrushSize{1};
+    std::int32_t m_RenderDistance{DefaultRenderDistance};
+    bool m_Looking{};
+    bool m_Painting{};
+    QElapsedTimer m_MovementClock;
+    QElapsedTimer m_FrameClock;
+    std::size_t m_FrameCount{};
+    UnrealVoxelSim::Simulation::Api::TickCount m_PendingSimulationTicks{};
+    QString m_Status{"Ready"};
+    std::function<void(const QString &)> m_DiagnosticsSink;
+    UnrealVoxelSim::Events::Api::Subscription m_ChangesSubscription;
 };
 
 } // namespace UnrealVoxelSim::Testbed::Qt

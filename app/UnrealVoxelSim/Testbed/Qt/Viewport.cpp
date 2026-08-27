@@ -1,8 +1,7 @@
 #include "Viewport.h"
 
-#include "UnrealVoxelSim/Voxel/Solid/Api/Cell.h"
+#include "UnrealVoxelSim/Profiling/Api/Macros.h"
 #include "UnrealVoxelSim/Voxel/Solid/Api/Changed.h"
-#include "UnrealVoxelSim/Voxel/Solid/Api/Placement.h"
 #include "UnrealVoxelSim/Voxel/Solid/Rendering/GreedyMesher.h"
 
 #include <QKeyEvent>
@@ -31,6 +30,7 @@ constexpr auto VertexShader = R"(
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 vertexNormal;
 layout(location = 2) in uint surface;
+layout(location = 3) in vec3 instanceOffset;
 
 uniform mat4 viewProjection;
 uniform vec3 modelOffset;
@@ -40,7 +40,7 @@ flat out uint surfaceId;
 
 void main()
 {
-    gl_Position = viewProjection * vec4(position + modelOffset, 1.0);
+    gl_Position = viewProjection * vec4(position + modelOffset + instanceOffset, 1.0);
     normal = vertexNormal;
     surfaceId = surface;
 }
@@ -51,6 +51,7 @@ constexpr auto FragmentShader = R"(
 in vec3 normal;
 flat in uint surfaceId;
 out vec4 color;
+uniform bool highlighted;
 
 vec3 surfaceColor(uint id)
 {
@@ -65,32 +66,24 @@ void main()
 {
     vec3 lightDirection = normalize(vec3(0.45, -0.35, 0.82));
     float illumination = 0.32 + 0.68 * max(dot(normalize(normal), lightDirection), 0.0);
-    color = vec4(surfaceColor(surfaceId) * illumination, 1.0);
+    vec3 baseColor = highlighted ? vec3(0.10, 0.95, 1.0) : surfaceColor(surfaceId);
+    color = vec4(baseColor * illumination, 1.0);
 }
 )";
 
 } // namespace
 
-Viewport::Viewport(const UnrealVoxelSim::Voxel::Api::IBounds &bounds,
-                   const UnrealVoxelSim::Voxel::Solid::Api::IReader &reader,
-                   const UnrealVoxelSim::Voxel::Solid::Api::IRegionReader &regionReader,
-                   UnrealVoxelSim::Voxel::Solid::Api::ICommandSink &commands,
-                   UnrealVoxelSim::Voxel::Solid::Api::IChangeSource &changes,
-                   UnrealVoxelSim::Simulation::Api::IStepper &simulation,
-                   UnrealVoxelSim::Navigation::Api::ICommandSink &navigationCommands,
-                   const UnrealVoxelSim::Navigation::Api::IExecutionReader &navigationExecutions,
-                   const UnrealVoxelSim::Movement::Api::IReader &movement,
-                   const UnrealVoxelSim::Ecs::Api::EntityId pawn, QWidget *parent)
-    : QOpenGLWidget(parent), Bounds_(bounds), Reader_(reader), RegionReader_(regionReader), Commands_(commands),
-      Simulation_(simulation), NavigationCommands_(navigationCommands), NavigationExecutions_(navigationExecutions),
-      Movement_(movement), Pawn_(pawn), Sampler_(bounds, regionReader)
+Viewport::Viewport(UnrealVoxelSim::Testbed::World &world,
+                   UnrealVoxelSim::Profiling::Api::IRecorder &profiling, QWidget *parent)
+    : QOpenGLWidget(parent), m_World(world), m_Profiling(profiling),
+      m_Sampler(world.Bounds(), world.SolidRegions())
 {
     setFocusPolicy(::Qt::StrongFocus);
     setMouseTracking(true);
-    MovementClock_.start();
-    FrameClock_.start();
-    ChangesSubscription_ =
-        changes.Subscribe([this](const UnrealVoxelSim::Voxel::Solid::Api::Changed &changed) noexcept {
+    m_MovementClock.start();
+    m_FrameClock.start();
+    m_ChangesSubscription =
+        world.SolidChanges().Subscribe([this](const UnrealVoxelSim::Voxel::Solid::Api::Changed &changed) noexcept {
             for (const auto region : changed.Regions)
             {
                 MarkDirty(region);
@@ -100,71 +93,78 @@ Viewport::Viewport(const UnrealVoxelSim::Voxel::Api::IBounds &bounds,
 
 Viewport::~Viewport()
 {
-    ChangesSubscription_.Reset();
-    for (auto &job : Jobs_)
+    m_ChangesSubscription.Reset();
+    for (auto &job : m_Jobs)
     {
         job.Future.wait();
     }
     if (isValid())
     {
         makeCurrent();
-        for (auto &[key, tile] : Tiles_)
+        for (auto &[key, tile] : m_Tiles)
         {
             static_cast<void>(key);
             DestroyGpu(tile);
         }
-        DestroyGpu(PawnGpu_);
-        Program_.reset();
+        DestroyGpu(m_PawnGpu);
+        if (m_PawnInstanceBuffer != 0) glDeleteBuffers(1, &m_PawnInstanceBuffer);
+        m_Program.reset();
         doneCurrent();
     }
 }
 
-void Viewport::SetBrushMode(const BrushMode mode) noexcept
+void Viewport::SetTool(const Tool tool) noexcept
 {
-    BrushMode_ = mode;
-    LastBrushCell_.reset();
+    m_Tool = tool;
+    m_LastBrushCell.reset();
 }
 
 void Viewport::SetBrushSize(const int size) noexcept
 {
-    BrushSize_ = std::clamp(size, 1, 9);
-    LastBrushCell_.reset();
+    m_BrushSize = std::clamp(size, 1, 9);
+    m_LastBrushCell.reset();
 }
 
 void Viewport::SetMaterial(const UnrealVoxelSim::Voxel::Solid::Api::MaterialId material) noexcept
 {
     if (material.IsValid())
     {
-        Material_ = material;
+        m_Material = material;
     }
 }
 
 void Viewport::SetRenderDistance(const int distance) noexcept
 {
-    RenderDistance_ = std::clamp(distance, MinimumRenderDistance, MaximumRenderDistance);
+    m_RenderDistance = std::clamp(distance, MinimumRenderDistance, MaximumRenderDistance);
 }
 
 void Viewport::SetDiagnosticsSink(std::function<void(const QString &)> sink)
 {
-    DiagnosticsSink_ = std::move(sink);
+    m_DiagnosticsSink = std::move(sink);
 }
 
 void Viewport::SetSimulationBacklog(const UnrealVoxelSim::Simulation::Api::TickCount pending) noexcept
 {
-    PendingSimulationTicks_ = pending;
+    m_PendingSimulationTicks = pending;
 }
 
 void Viewport::ReportStatus(QString status)
 {
-    Status_ = std::move(status);
+    m_Status = std::move(status);
 }
 
 void Viewport::Tick()
 {
-    const auto elapsedNanoseconds = MovementClock_.nsecsElapsed();
-    MovementClock_.restart();
+    UNREALVOXELSIM_PROFILE_ZONE(m_Profiling, "Viewport update request");
+    if (m_SelectedPawn && !m_World.ReadPawn(*m_SelectedPawn))
+    {
+        m_SelectedPawn.reset();
+        m_Status = "Selected pawn no longer exists";
+    }
+    const auto elapsedNanoseconds = m_MovementClock.nsecsElapsed();
+    m_MovementClock.restart();
     const auto elapsed = std::min(static_cast<float>(elapsedNanoseconds) / 1'000'000'000.0F, 0.1F);
-    const auto speed = Keys_.contains(::Qt::Key_Shift) ? 45.0F : 18.0F;
+    const auto speed = m_Keys.contains(::Qt::Key_Shift) ? 45.0F : 18.0F;
     const auto forward = Forward();
     auto right = QVector3D::crossProduct(forward, QVector3D{0.0F, 0.0F, 1.0F});
     if (!right.isNull())
@@ -172,21 +172,21 @@ void Viewport::Tick()
         right.normalize();
     }
     QVector3D movement;
-    if (Keys_.contains(::Qt::Key_W))
+    if (m_Keys.contains(::Qt::Key_W))
         movement += forward;
-    if (Keys_.contains(::Qt::Key_S))
+    if (m_Keys.contains(::Qt::Key_S))
         movement -= forward;
-    if (Keys_.contains(::Qt::Key_D))
+    if (m_Keys.contains(::Qt::Key_D))
         movement += right;
-    if (Keys_.contains(::Qt::Key_A))
+    if (m_Keys.contains(::Qt::Key_A))
         movement -= right;
-    if (Keys_.contains(::Qt::Key_E))
+    if (m_Keys.contains(::Qt::Key_E))
         movement += QVector3D{0.0F, 0.0F, 1.0F};
-    if (Keys_.contains(::Qt::Key_Q))
+    if (m_Keys.contains(::Qt::Key_Q))
         movement -= QVector3D{0.0F, 0.0F, 1.0F};
     if (!movement.isNull())
     {
-        Camera_ += movement.normalized() * speed * elapsed;
+        m_Camera += movement.normalized() * speed * elapsed;
     }
     update();
 }
@@ -199,11 +199,11 @@ void Viewport::initializeGL()
     glCullFace(GL_BACK);
     glFrontFace(GL_CCW);
 
-    Program_ = std::make_unique<QOpenGLShaderProgram>();
-    if (!Program_->addShaderFromSourceCode(QOpenGLShader::Vertex, VertexShader) ||
-        !Program_->addShaderFromSourceCode(QOpenGLShader::Fragment, FragmentShader) || !Program_->link())
+    m_Program = std::make_unique<QOpenGLShaderProgram>();
+    if (!m_Program->addShaderFromSourceCode(QOpenGLShader::Vertex, VertexShader) ||
+        !m_Program->addShaderFromSourceCode(QOpenGLShader::Fragment, FragmentShader) || !m_Program->link())
     {
-        Status_ = QString{"Shader initialization failed: %1"}.arg(Program_->log());
+        m_Status = QString{"Shader initialization failed: %1"}.arg(m_Program->log());
     }
     else
     {
@@ -213,51 +213,112 @@ void Viewport::initializeGL()
 
 void Viewport::paintGL()
 {
-    EnsureResidency();
-    ProcessJobs();
-    ScheduleJobs();
+    UNREALVOXELSIM_PROFILE_ZONE(m_Profiling, "Qt render frame");
+    {
+        UNREALVOXELSIM_PROFILE_ZONE(m_Profiling, "Terrain residency");
+        EnsureResidency();
+    }
+    {
+        UNREALVOXELSIM_PROFILE_ZONE(m_Profiling, "Terrain job completion");
+        ProcessJobs();
+    }
+    {
+        UNREALVOXELSIM_PROFILE_ZONE(m_Profiling, "Terrain job scheduling");
+        ScheduleJobs();
+    }
 
     glClearColor(0.52F, 0.72F, 0.92F, 1.0F);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    if (!Program_ || !Program_->isLinked())
+    if (!m_Program || !m_Program->isLinked())
     {
         return;
     }
 
     const auto viewProjection = ViewProjection();
-    Program_->bind();
-    Program_->setUniformValue("viewProjection", viewProjection);
-    Program_->setUniformValue("modelOffset", QVector3D{});
+    m_Program->bind();
+    m_Program->setUniformValue("viewProjection", viewProjection);
+    m_Program->setUniformValue("modelOffset", QVector3D{});
+    m_Program->setUniformValue("highlighted", false);
     std::size_t visibleTiles{};
     std::size_t drawCalls{};
     std::size_t triangles{};
-    for (const auto &[key, tile] : Tiles_)
     {
-        if (tile.IndexCount == 0 || !IsVisible(TileRegion(key), viewProjection))
+        UNREALVOXELSIM_PROFILE_ZONE(m_Profiling, "Terrain draw submission");
+        for (const auto &[key, tile] : m_Tiles)
         {
-            continue;
+            if (tile.IndexCount == 0 || !IsVisible(TileRegion(key), viewProjection))
+            {
+                continue;
+            }
+            ++visibleTiles;
+            ++drawCalls;
+            triangles += static_cast<std::size_t>(tile.IndexCount) / 3;
+            glBindVertexArray(tile.VertexArray);
+            glDrawElements(GL_TRIANGLES, tile.IndexCount, GL_UNSIGNED_INT, nullptr);
         }
-        ++visibleTiles;
-        ++drawCalls;
-        triangles += static_cast<std::size_t>(tile.IndexCount) / 3;
-        glBindVertexArray(tile.VertexArray);
-        glDrawElements(GL_TRIANGLES, tile.IndexCount, GL_UNSIGNED_INT, nullptr);
     }
-    const auto pawn = Movement_.Read(Pawn_);
-    if (pawn && PawnGpu_.IndexCount != 0)
+    std::vector<GpuOffset> pawnOffsets;
+    pawnOffsets.reserve(m_World.Pawns().size());
+    std::optional<GpuOffset> selectedPawnOffset;
+    const auto maximumPawnDistanceSquared = static_cast<double>(m_RenderDistance) * m_RenderDistance;
     {
-        Program_->setUniformValue(
-            "modelOffset", QVector3D{static_cast<float>(pawn->Location.X.ToDouble()),
-                                     static_cast<float>(pawn->Location.Y.ToDouble()),
-                                     static_cast<float>(pawn->Location.Z.ToDouble())});
-        glBindVertexArray(PawnGpu_.VertexArray);
-        glDrawElements(GL_TRIANGLES, PawnGpu_.IndexCount, GL_UNSIGNED_INT, nullptr);
+        UNREALVOXELSIM_PROFILE_ZONE(m_Profiling, "Pawn visibility collection");
+        for (const auto entity : m_World.Pawns())
+        {
+            const auto pawn = m_World.ReadPawn(entity);
+            if (!pawn) continue;
+            const auto x = pawn->Location.X.ToDouble();
+            const auto y = pawn->Location.Y.ToDouble();
+            const auto z = pawn->Location.Z.ToDouble();
+            const auto dx = x - m_Camera.x();
+            const auto dy = y - m_Camera.y();
+            const auto dz = z - m_Camera.z();
+            if (dx * dx + dy * dy + dz * dz > maximumPawnDistanceSquared) continue;
+            const auto clip = viewProjection * QVector4D{static_cast<float>(x), static_cast<float>(y),
+                                                         static_cast<float>(z + 0.9), 1.0F};
+            if (clip.w() <= 0.0F || clip.x() < -clip.w() || clip.x() > clip.w() || clip.y() < -clip.w() ||
+                clip.y() > clip.w() || clip.z() < -clip.w() || clip.z() > clip.w())
+                continue;
+            const GpuOffset offset{static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)};
+            if (m_SelectedPawn == entity)
+                selectedPawnOffset = offset;
+            else
+                pawnOffsets.push_back(offset);
+        }
+    }
+    if (!pawnOffsets.empty() && m_PawnGpu.IndexCount != 0)
+    {
+        glBindVertexArray(m_PawnGpu.VertexArray);
+        glBindBuffer(GL_ARRAY_BUFFER, m_PawnInstanceBuffer);
+        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(pawnOffsets.size() * sizeof(GpuOffset)),
+                     pawnOffsets.data(), GL_DYNAMIC_DRAW);
+        glDrawElementsInstanced(GL_TRIANGLES, m_PawnGpu.IndexCount, GL_UNSIGNED_INT, nullptr,
+                                static_cast<GLsizei>(pawnOffsets.size()));
         ++drawCalls;
-        triangles += static_cast<std::size_t>(PawnGpu_.IndexCount) / 3;
+        triangles += static_cast<std::size_t>(m_PawnGpu.IndexCount) / 3 * pawnOffsets.size();
+    }
+    if (selectedPawnOffset && m_PawnGpu.IndexCount != 0)
+    {
+        m_Program->setUniformValue("highlighted", true);
+        glBindVertexArray(m_PawnGpu.VertexArray);
+        glBindBuffer(GL_ARRAY_BUFFER, m_PawnInstanceBuffer);
+        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(sizeof(GpuOffset)), &*selectedPawnOffset,
+                     GL_DYNAMIC_DRAW);
+        glDrawElementsInstanced(GL_TRIANGLES, m_PawnGpu.IndexCount, GL_UNSIGNED_INT, nullptr, 1);
+        m_Program->setUniformValue("highlighted", false);
+        ++drawCalls;
+        triangles += static_cast<std::size_t>(m_PawnGpu.IndexCount) / 3;
     }
     glBindVertexArray(0);
-    Program_->release();
-    PublishDiagnostics(visibleTiles, drawCalls, triangles);
+    m_Program->release();
+    UNREALVOXELSIM_PROFILE_PLOT(m_Profiling, "Resident terrain tiles", m_Tiles.size());
+    UNREALVOXELSIM_PROFILE_PLOT(m_Profiling, "Dirty terrain tiles", m_Dirty.size());
+    UNREALVOXELSIM_PROFILE_PLOT(m_Profiling, "Terrain mesh jobs", m_Jobs.size());
+    const auto visiblePawns = pawnOffsets.size() + static_cast<std::size_t>(selectedPawnOffset.has_value());
+    UNREALVOXELSIM_PROFILE_PLOT(m_Profiling, "Visible pawns", visiblePawns);
+    UNREALVOXELSIM_PROFILE_PLOT(m_Profiling, "Render draw calls", drawCalls);
+    PublishDiagnostics(visibleTiles, visiblePawns, drawCalls, triangles);
+    UNREALVOXELSIM_PROFILE_FRAME(m_Profiling, "Presentation");
 }
 
 void Viewport::resizeGL(const int width, const int height)
@@ -269,7 +330,7 @@ void Viewport::keyPressEvent(QKeyEvent *event)
 {
     if (!event->isAutoRepeat())
     {
-        Keys_.insert(event->key());
+        m_Keys.insert(event->key());
     }
     QOpenGLWidget::keyPressEvent(event);
 }
@@ -278,7 +339,7 @@ void Viewport::keyReleaseEvent(QKeyEvent *event)
 {
     if (!event->isAutoRepeat())
     {
-        Keys_.erase(event->key());
+        m_Keys.erase(event->key());
     }
     QOpenGLWidget::keyReleaseEvent(event);
 }
@@ -286,15 +347,15 @@ void Viewport::keyReleaseEvent(QKeyEvent *event)
 void Viewport::mousePressEvent(QMouseEvent *event)
 {
     setFocus();
-    LastMouse_ = event->position().toPoint();
+    m_LastMouse = event->position().toPoint();
     if (event->button() == ::Qt::RightButton)
     {
-        Looking_ = true;
+        m_Looking = true;
     }
     if (event->button() == ::Qt::LeftButton)
     {
-        Painting_ = true;
-        LastBrushCell_.reset();
+        m_Painting = true;
+        m_LastBrushCell.reset();
         ApplyBrush(event->position().toPoint());
     }
 }
@@ -303,29 +364,29 @@ void Viewport::mouseReleaseEvent(QMouseEvent *event)
 {
     if (event->button() == ::Qt::RightButton)
     {
-        Looking_ = false;
+        m_Looking = false;
     }
     if (event->button() == ::Qt::LeftButton)
     {
-        Painting_ = false;
-        LastBrushCell_.reset();
+        m_Painting = false;
+        m_LastBrushCell.reset();
     }
 }
 
 void Viewport::mouseMoveEvent(QMouseEvent *event)
 {
     const auto position = event->position().toPoint();
-    if (Looking_)
+    if (m_Looking)
     {
-        const auto delta = position - LastMouse_;
-        Yaw_ -= static_cast<float>(delta.x()) * 0.18F;
-        Pitch_ = std::clamp(Pitch_ - static_cast<float>(delta.y()) * 0.18F, -89.0F, 89.0F);
+        const auto delta = position - m_LastMouse;
+        m_Yaw -= static_cast<float>(delta.x()) * 0.18F;
+        m_Pitch = std::clamp(m_Pitch - static_cast<float>(delta.y()) * 0.18F, -89.0F, 89.0F);
     }
-    if (Painting_)
+    if (m_Painting)
     {
         ApplyBrush(position);
     }
-    LastMouse_ = position;
+    m_LastMouse = position;
 }
 
 std::size_t Viewport::TileKeyHash::operator()(const TileKey &key) const noexcept
@@ -347,7 +408,7 @@ std::int32_t Viewport::FloorDiv(const std::int32_t value) noexcept
 
 UnrealVoxelSim::Voxel::Api::Region Viewport::TileRegion(const TileKey key) const noexcept
 {
-    const auto bounds = Bounds_.Bounds();
+    const auto bounds = m_World.Bounds().Bounds();
     const auto minimumX = static_cast<std::int64_t>(key.X) * TileEdge;
     const auto minimumY = static_cast<std::int64_t>(key.Y) * TileEdge;
     const auto minimumZ = static_cast<std::int64_t>(key.Z) * TileEdge;
@@ -365,8 +426,8 @@ UnrealVoxelSim::Voxel::Api::Region Viewport::TileRegion(const TileKey key) const
 QVector3D Viewport::Forward() const noexcept
 {
     constexpr auto DegreesToRadians = 3.14159265358979323846F / 180.0F;
-    const auto yaw = Yaw_ * DegreesToRadians;
-    const auto pitch = Pitch_ * DegreesToRadians;
+    const auto yaw = m_Yaw * DegreesToRadians;
+    const auto pitch = m_Pitch * DegreesToRadians;
     return QVector3D{std::cos(pitch) * std::cos(yaw), std::cos(pitch) * std::sin(yaw), std::sin(pitch)}.normalized();
 }
 
@@ -374,9 +435,9 @@ QMatrix4x4 Viewport::ViewProjection() const
 {
     QMatrix4x4 projection;
     projection.perspective(65.0F, static_cast<float>(std::max(width(), 1)) / static_cast<float>(std::max(height(), 1)),
-                           0.1F, static_cast<float>(RenderDistance_ + TileEdge * 2));
+                           0.1F, static_cast<float>(m_RenderDistance + TileEdge * 2));
     QMatrix4x4 view;
-    view.lookAt(Camera_, Camera_ + Forward(), QVector3D{0.0F, 0.0F, 1.0F});
+    view.lookAt(m_Camera, m_Camera + Forward(), QVector3D{0.0F, 0.0F, 1.0F});
     return projection * view;
 }
 
@@ -407,16 +468,16 @@ bool Viewport::IsVisible(const UnrealVoxelSim::Voxel::Api::Region region, const 
 
 void Viewport::EnsureResidency()
 {
-    const auto renderRadius = (RenderDistance_ + TileEdge - 1) / TileEdge;
-    const TileKey center{FloorDiv(static_cast<std::int32_t>(std::floor(Camera_.x()))),
-                         FloorDiv(static_cast<std::int32_t>(std::floor(Camera_.y()))),
-                         FloorDiv(static_cast<std::int32_t>(std::floor(Camera_.z())))};
-    if (ResidencyCenter_ == center && ResidencyRadius_ == renderRadius)
+    const auto renderRadius = (m_RenderDistance + TileEdge - 1) / TileEdge;
+    const TileKey center{FloorDiv(static_cast<std::int32_t>(std::floor(m_Camera.x()))),
+                         FloorDiv(static_cast<std::int32_t>(std::floor(m_Camera.y()))),
+                         FloorDiv(static_cast<std::int32_t>(std::floor(m_Camera.z())))};
+    if (m_ResidencyCenter == center && m_ResidencyRadius == renderRadius)
     {
         return;
     }
-    ResidencyCenter_ = center;
-    ResidencyRadius_ = renderRadius;
+    m_ResidencyCenter = center;
+    m_ResidencyRadius = renderRadius;
 
     std::unordered_set<TileKey, TileKeyHash> desired;
     for (auto z = -renderRadius; z <= renderRadius; ++z)
@@ -436,22 +497,22 @@ void Viewport::EnsureResidency()
                     continue;
                 }
                 desired.insert(key);
-                const auto [iterator, inserted] = Tiles_.try_emplace(key);
+                const auto [iterator, inserted] = m_Tiles.try_emplace(key);
                 if (inserted)
                 {
                     iterator->second.Queued = true;
-                    Dirty_.push_back(key);
+                    m_Dirty.push_back(key);
                 }
             }
         }
     }
 
-    for (auto iterator = Tiles_.begin(); iterator != Tiles_.end();)
+    for (auto iterator = m_Tiles.begin(); iterator != m_Tiles.end();)
     {
         if (!desired.contains(iterator->first))
         {
             DestroyGpu(iterator->second);
-            iterator = Tiles_.erase(iterator);
+            iterator = m_Tiles.erase(iterator);
         }
         else
         {
@@ -466,7 +527,7 @@ void Viewport::MarkDirty(const UnrealVoxelSim::Voxel::Api::Region region)
     {
         return;
     }
-    const auto bounds = Bounds_.Bounds();
+    const auto bounds = m_World.Bounds().Bounds();
     const UnrealVoxelSim::Voxel::Api::Region expanded{{region.Min.X > bounds.Min.X ? region.Min.X - 1 : region.Min.X,
                                                        region.Min.Y > bounds.Min.Y ? region.Min.Y - 1 : region.Min.Y,
                                                        region.Min.Z > bounds.Min.Z ? region.Min.Z - 1 : region.Min.Z},
@@ -482,8 +543,8 @@ void Viewport::MarkDirty(const UnrealVoxelSim::Voxel::Api::Region region)
             for (auto x = minimum.X; x <= maximum.X; ++x)
             {
                 const TileKey key{x, y, z};
-                const auto iterator = Tiles_.find(key);
-                if (iterator == Tiles_.end())
+                const auto iterator = m_Tiles.find(key);
+                if (iterator == m_Tiles.end())
                 {
                     continue;
                 }
@@ -491,7 +552,7 @@ void Viewport::MarkDirty(const UnrealVoxelSim::Voxel::Api::Region region)
                 if (!iterator->second.Queued)
                 {
                     iterator->second.Queued = true;
-                    Dirty_.push_back(key);
+                    m_Dirty.push_back(key);
                 }
             }
         }
@@ -500,7 +561,7 @@ void Viewport::MarkDirty(const UnrealVoxelSim::Voxel::Api::Region region)
 
 void Viewport::ProcessJobs()
 {
-    for (auto iterator = Jobs_.begin(); iterator != Jobs_.end();)
+    for (auto iterator = m_Jobs.begin(); iterator != m_Jobs.end();)
     {
         if (iterator->Future.wait_for(std::chrono::seconds{0}) != std::future_status::ready)
         {
@@ -508,8 +569,8 @@ void Viewport::ProcessJobs()
             continue;
         }
         auto result = iterator->Future.get();
-        const auto tile = Tiles_.find(iterator->Key);
-        if (tile != Tiles_.end() && tile->second.Generation == iterator->Generation)
+        const auto tile = m_Tiles.find(iterator->Key);
+        if (tile != m_Tiles.end() && tile->second.Generation == iterator->Generation)
         {
             if (result)
             {
@@ -518,10 +579,10 @@ void Viewport::ProcessJobs()
             }
             else
             {
-                Status_ = "Meshing failed";
+                m_Status = "Meshing failed";
             }
         }
-        iterator = Jobs_.erase(iterator);
+        iterator = m_Jobs.erase(iterator);
     }
 }
 
@@ -530,25 +591,25 @@ void Viewport::ScheduleJobs()
     const auto hardwareThreads = std::max(std::thread::hardware_concurrency(), 2U);
     const auto maximumJobs = static_cast<std::size_t>(std::min(hardwareThreads - 1, 4U));
     std::size_t captured{};
-    while (!Dirty_.empty() && Jobs_.size() < maximumJobs && captured < 2)
+    while (!m_Dirty.empty() && m_Jobs.size() < maximumJobs && captured < 2)
     {
-        const auto key = Dirty_.front();
-        Dirty_.pop_front();
-        const auto tile = Tiles_.find(key);
-        if (tile == Tiles_.end())
+        const auto key = m_Dirty.front();
+        m_Dirty.pop_front();
+        const auto tile = m_Tiles.find(key);
+        if (tile == m_Tiles.end())
         {
             continue;
         }
         tile->second.Queued = false;
         const auto generation = tile->second.Generation;
-        auto snapshot = Sampler_.Capture(TileRegion(key));
+        auto snapshot = m_Sampler.Capture(TileRegion(key));
         if (!snapshot)
         {
-            Status_ = "Voxel snapshot capture failed";
+            m_Status = "Voxel snapshot capture failed";
             tile->second.UploadedGeneration = generation;
             continue;
         }
-        Jobs_.push_back(
+        m_Jobs.push_back(
             Job{key, generation, std::async(std::launch::async, [snapshot = std::move(*snapshot)]() mutable {
                     return UnrealVoxelSim::Voxel::Solid::Rendering::GreedyMesher{}.Build(snapshot);
                 })});
@@ -611,7 +672,7 @@ void Viewport::DestroyGpu(Tile &tile) noexcept
     tile.IndexCount = 0;
 }
 
-std::optional<Viewport::Hit> Viewport::Raycast(const QPoint &screenPosition) const
+std::optional<Viewport::Ray> Viewport::ScreenRay(const QPoint &screenPosition) const
 {
     bool invertible{};
     const auto inverse = ViewProjection().inverted(&invertible);
@@ -626,7 +687,15 @@ std::optional<Viewport::Hit> Viewport::Raycast(const QPoint &screenPosition) con
     nearPoint /= nearPoint.w();
     farPoint /= farPoint.w();
     const auto origin = nearPoint.toVector3D();
-    const auto direction = (farPoint.toVector3D() - origin).normalized();
+    return Ray{origin, (farPoint.toVector3D() - origin).normalized()};
+}
+
+std::optional<Viewport::Hit> Viewport::Raycast(const QPoint &screenPosition) const
+{
+    const auto ray = ScreenRay(screenPosition);
+    if (!ray) return std::nullopt;
+    const auto &origin = ray->Origin;
+    const auto &direction = ray->Direction;
 
     std::array<std::int32_t, 3> cell{static_cast<std::int32_t>(std::floor(origin.x())),
                                      static_cast<std::int32_t>(std::floor(origin.y())),
@@ -647,13 +716,13 @@ std::optional<Viewport::Hit> Viewport::Raycast(const QPoint &screenPosition) con
 
     UnrealVoxelSim::Voxel::Api::Offset normal{};
     float distance{};
-    const auto bounds = Bounds_.Bounds();
+    const auto bounds = m_World.Bounds().Bounds();
     for (std::size_t iteration = 0; iteration < 768 && distance <= 256.0F; ++iteration)
     {
         const UnrealVoxelSim::Voxel::Api::Position position{cell[0], cell[1], cell[2]};
         if (bounds.Contains(position))
         {
-            const auto value = Reader_.Read(position);
+            const auto value = m_World.Solids().Read(position);
             if (value && !value->IsEmpty())
             {
                 return Hit{position, normal};
@@ -677,7 +746,12 @@ std::optional<Viewport::Hit> Viewport::Raycast(const QPoint &screenPosition) con
 
 void Viewport::ApplyBrush(const QPoint &screenPosition)
 {
-    if (BrushMode_ == BrushMode::Navigate)
+    if (m_Tool == Tool::Select)
+    {
+        SelectPawn(screenPosition);
+        return;
+    }
+    if (m_Tool == Tool::Navigate)
     {
         SubmitNavigation(screenPosition);
         return;
@@ -685,25 +759,25 @@ void Viewport::ApplyBrush(const QPoint &screenPosition)
     const auto hit = Raycast(screenPosition);
     if (!hit)
     {
-        Status_ = "No solid voxel under cursor";
+        m_Status = "No solid voxel under cursor";
         return;
     }
     auto center = hit->Cell;
-    if (BrushMode_ == BrushMode::Fill)
+    if (m_Tool == Tool::Fill)
     {
         center.X += hit->Normal.X;
         center.Y += hit->Normal.Y;
         center.Z += hit->Normal.Z;
     }
-    if (LastBrushCell_ == center)
+    if (m_LastBrushCell == center)
     {
         return;
     }
-    LastBrushCell_ = center;
+    m_LastBrushCell = center;
 
-    const auto bounds = Bounds_.Bounds();
-    const auto before = (BrushSize_ - 1) / 2;
-    const auto after = BrushSize_ / 2;
+    const auto bounds = m_World.Bounds().Bounds();
+    const auto before = (m_BrushSize - 1) / 2;
+    const auto after = m_BrushSize / 2;
     const UnrealVoxelSim::Voxel::Api::Region region{
         {std::max(bounds.Min.X, center.X - before), std::max(bounds.Min.Y, center.Y - before),
          std::max(bounds.Min.Z, center.Z - before)},
@@ -711,85 +785,68 @@ void Viewport::ApplyBrush(const QPoint &screenPosition)
          std::min(bounds.Max.Z, center.Z + after + 1)}};
     if (!region.IsValid() || region.IsEmpty())
     {
-        Status_ = "Brush is outside world bounds";
+        m_Status = "Brush is outside world bounds";
         return;
     }
 
-    std::vector<UnrealVoxelSim::Voxel::Solid::Api::Cell> cells(*region.CellCount());
-    if (!RegionReader_.ReadRegion(region, cells))
+    if (m_Tool == Tool::Erase)
     {
-        Status_ = "Brush region read failed";
-        return;
-    }
-
-    std::vector<UnrealVoxelSim::Voxel::Api::Position> removals;
-    std::vector<UnrealVoxelSim::Voxel::Solid::Api::Placement> placements;
-    std::size_t index{};
-    for (auto z = region.Min.Z; z < region.Max.Z; ++z)
-    {
-        for (auto y = region.Min.Y; y < region.Max.Y; ++y)
-        {
-            for (auto x = region.Min.X; x < region.Max.X; ++x)
-            {
-                const UnrealVoxelSim::Voxel::Api::Position position{x, y, z};
-                const auto cell = cells[index++];
-                if (BrushMode_ == BrushMode::Erase && !cell.IsEmpty())
-                    removals.push_back(position);
-                if (BrushMode_ == BrushMode::Fill && cell.IsEmpty())
-                    placements.push_back({position, Material_});
-            }
-        }
-    }
-
-    if (BrushMode_ == BrushMode::Erase)
-    {
-        if (removals.empty())
-            return;
-        const UnrealVoxelSim::Voxel::Solid::Api::QueuedCommand command{
-            UnrealVoxelSim::Voxel::Solid::Api::EraseCommand{
-                {Simulation_.CurrentTick(), UnrealVoxelSim::Simulation::Api::CommandSourceId{2}, ++SolidSequence_},
-                std::move(removals)}};
-        const std::array commands{command};
-        Status_ = Commands_.Submit(commands) ? "Erase command queued" : "Erase command rejected";
+        m_Status = m_World.Erase(region) ? "Erase command queued" : "Erase command rejected";
     }
     else
     {
-        if (placements.empty())
-            return;
-        const UnrealVoxelSim::Voxel::Solid::Api::QueuedCommand command{
-            UnrealVoxelSim::Voxel::Solid::Api::FillCommand{
-                {Simulation_.CurrentTick(), UnrealVoxelSim::Simulation::Api::CommandSourceId{2}, ++SolidSequence_},
-                std::move(placements)}};
-        const std::array commands{command};
-        Status_ = Commands_.Submit(commands) ? "Fill command queued" : "Fill command rejected";
+        m_Status = m_World.Fill(region, m_Material) ? "Fill command queued" : "Fill command rejected";
     }
+}
+
+void Viewport::SelectPawn(const QPoint &screenPosition)
+{
+    const auto ray = ScreenRay(screenPosition);
+    if (!ray)
+    {
+        m_Status = "Pawn selection ray is unavailable";
+        return;
+    }
+    std::optional<UnrealVoxelSim::Ecs::Api::EntityId> selected;
+    auto nearest = std::numeric_limits<float>::max();
+    for (const auto entity : m_World.Pawns())
+    {
+        const auto state = m_World.ReadPawn(entity);
+        if (!state) continue;
+        const QVector3D center{static_cast<float>(state->Location.X.ToDouble()),
+                               static_cast<float>(state->Location.Y.ToDouble()),
+                               static_cast<float>(state->Location.Z.ToDouble() + 0.9)};
+        const auto offset = center - ray->Origin;
+        const auto distance = QVector3D::dotProduct(offset, ray->Direction);
+        if (distance < 0.0F || distance > 256.0F || distance >= nearest) continue;
+        const auto closest = ray->Origin + ray->Direction * distance;
+        if ((center - closest).lengthSquared() > 0.9F * 0.9F) continue;
+        nearest = distance;
+        selected = entity;
+    }
+    m_SelectedPawn = selected;
+    m_Status = selected ? "Pawn selected" : "No pawn under cursor";
 }
 
 void Viewport::SubmitNavigation(const QPoint &screenPosition)
 {
+    if (!m_SelectedPawn)
+    {
+        m_Status = "Select a pawn before issuing navigation";
+        return;
+    }
     const auto hit = Raycast(screenPosition);
     if (!hit)
     {
-        Status_ = "No navigation destination under cursor";
+        m_Status = "No navigation destination under cursor";
         return;
     }
     auto foot = hit->Cell;
     foot.X += hit->Normal.X;
     foot.Y += hit->Normal.Y;
     foot.Z += hit->Normal.Z;
-    constexpr auto one = UnrealVoxelSim::Movement::Api::Scalar::OneRaw;
-    constexpr auto half = one / 2;
-    const UnrealVoxelSim::Movement::Api::Position goal{
-        UnrealVoxelSim::Movement::Api::Scalar::FromRaw(static_cast<std::int64_t>(foot.X) * one + half),
-        UnrealVoxelSim::Movement::Api::Scalar::FromRaw(static_cast<std::int64_t>(foot.Y) * one + half),
-        UnrealVoxelSim::Movement::Api::Scalar::FromRaw(static_cast<std::int64_t>(foot.Z) * one)};
-    const UnrealVoxelSim::Navigation::Api::Command command{UnrealVoxelSim::Navigation::Api::Start{
-        {Simulation_.CurrentTick(), UnrealVoxelSim::Simulation::Api::CommandSourceId{1}, ++NavigationSequence_}, Pawn_,
-        UnrealVoxelSim::Navigation::Api::ExecutionId{++NavigationExecution_},
-        {goal, UnrealVoxelSim::Movement::Api::Scalar::FromRaw(one / 4)}}};
-    const std::array commands{command};
-    const auto result = NavigationCommands_.Submit(commands);
-    Status_ = result ? "Navigation execution queued" : "Navigation command rejected";
+    m_Status = m_World.Navigate(*m_SelectedPawn, foot) ? "Navigation execution queued"
+                                                    : "Navigation command rejected";
 }
 
 void Viewport::CreatePawnGpu()
@@ -808,14 +865,14 @@ void Viewport::CreatePawnGpu()
         0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4,
         1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7,
     };
-    glGenVertexArrays(1, &PawnGpu_.VertexArray);
-    glGenBuffers(1, &PawnGpu_.VertexBuffer);
-    glGenBuffers(1, &PawnGpu_.IndexBuffer);
-    glBindVertexArray(PawnGpu_.VertexArray);
-    glBindBuffer(GL_ARRAY_BUFFER, PawnGpu_.VertexBuffer);
+    glGenVertexArrays(1, &m_PawnGpu.VertexArray);
+    glGenBuffers(1, &m_PawnGpu.VertexBuffer);
+    glGenBuffers(1, &m_PawnGpu.IndexBuffer);
+    glBindVertexArray(m_PawnGpu.VertexArray);
+    glBindBuffer(GL_ARRAY_BUFFER, m_PawnGpu.VertexBuffer);
     glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(vertices.size() * sizeof(GpuVertex)), vertices.data(),
                  GL_STATIC_DRAW);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, PawnGpu_.IndexBuffer);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_PawnGpu.IndexBuffer);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(indices.size() * sizeof(std::uint32_t)), indices.data(),
                  GL_STATIC_DRAW);
     glEnableVertexAttribArray(0);
@@ -826,47 +883,50 @@ void Viewport::CreatePawnGpu()
     glEnableVertexAttribArray(2);
     glVertexAttribIPointer(2, 1, GL_UNSIGNED_INT, sizeof(GpuVertex),
                            reinterpret_cast<void *>(offsetof(GpuVertex, Surface)));
+    glGenBuffers(1, &m_PawnInstanceBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, m_PawnInstanceBuffer);
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(GpuOffset), nullptr);
+    glVertexAttribDivisor(3, 1);
     glBindVertexArray(0);
-    PawnGpu_.IndexCount = static_cast<int>(indices.size());
+    m_PawnGpu.IndexCount = static_cast<int>(indices.size());
 }
 
-void Viewport::PublishDiagnostics(const std::size_t visibleTiles, const std::size_t drawCalls,
-                                  const std::size_t triangles)
+void Viewport::PublishDiagnostics(const std::size_t visibleTiles, const std::size_t visiblePawns,
+                                  const std::size_t drawCalls, const std::size_t triangles)
 {
-    ++FrameCount_;
-    const auto elapsed = FrameClock_.elapsed();
-    if (elapsed < 500 || !DiagnosticsSink_)
+    ++m_FrameCount;
+    const auto elapsed = m_FrameClock.elapsed();
+    if (elapsed < 500 || !m_DiagnosticsSink)
     {
         return;
     }
-    const auto framesPerSecond = static_cast<double>(FrameCount_) * 1000.0 / static_cast<double>(elapsed);
-    QString navigation{"idle"};
-    if (const auto execution = NavigationExecutions_.ReadExecution(Pawn_))
-    {
-        switch (execution->State)
-        {
-        case UnrealVoxelSim::Navigation::Api::ExecutionState::Planning: navigation = "planning"; break;
-        case UnrealVoxelSim::Navigation::Api::ExecutionState::Following: navigation = "following"; break;
-        case UnrealVoxelSim::Navigation::Api::ExecutionState::Replanning: navigation = "replanning"; break;
-        case UnrealVoxelSim::Navigation::Api::ExecutionState::Arrived: navigation = "arrived"; break;
-        case UnrealVoxelSim::Navigation::Api::ExecutionState::Unreachable: navigation = "unreachable"; break;
-        case UnrealVoxelSim::Navigation::Api::ExecutionState::Cancelled: navigation = "cancelled"; break;
-        }
-    }
-    DiagnosticsSink_(QString{"%1 FPS | tick %2 | lag %3 ticks | nav %4 | tiles %5/%6 | rebuild %7 queued, %8 active | draws %9 | triangles %10 | %11"}
+    const auto framesPerSecond = static_cast<double>(m_FrameCount) * 1000.0 / static_cast<double>(elapsed);
+    const auto runtime = m_World.Stats();
+    const auto &navigationCounts = runtime.NavigationCounts;
+    const auto navigation = QString{"P%1 F%2 R%3 A%4 U%5 C%6"}
+                                .arg(navigationCounts[0])
+                                .arg(navigationCounts[1])
+                                .arg(navigationCounts[2])
+                                .arg(navigationCounts[3])
+                                .arg(navigationCounts[4])
+                                .arg(navigationCounts[5]);
+    m_DiagnosticsSink(QString{"%1 FPS | tick %2 | lag %3 | pawns %4/%5 | nav %6 | tiles %7/%8 | rebuild %9/%10 | draws %11 | triangles %12 | %13"}
                          .arg(framesPerSecond, 0, 'f', 1)
-                         .arg(Simulation_.CurrentTick().Value())
-                         .arg(PendingSimulationTicks_.Value())
+                         .arg(runtime.Tick.Value())
+                         .arg(m_PendingSimulationTicks.Value())
+                         .arg(visiblePawns)
+                         .arg(runtime.PawnCount)
                          .arg(navigation)
                          .arg(visibleTiles)
-                         .arg(Tiles_.size())
-                         .arg(Dirty_.size())
-                         .arg(Jobs_.size())
+                         .arg(m_Tiles.size())
+                         .arg(m_Dirty.size())
+                         .arg(m_Jobs.size())
                          .arg(drawCalls)
                          .arg(triangles)
-                         .arg(Status_));
-    FrameCount_ = 0;
-    FrameClock_.restart();
+                         .arg(m_Status));
+    m_FrameCount = 0;
+    m_FrameClock.restart();
 }
 
 } // namespace UnrealVoxelSim::Testbed::Qt

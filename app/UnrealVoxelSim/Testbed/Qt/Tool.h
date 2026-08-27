@@ -3,8 +3,9 @@
 namespace UnrealVoxelSim::Testbed::Qt
 {
 
-enum class BrushMode
+enum class Tool
 {
+    Select,
     Fill,
     Erase,
     Navigate,

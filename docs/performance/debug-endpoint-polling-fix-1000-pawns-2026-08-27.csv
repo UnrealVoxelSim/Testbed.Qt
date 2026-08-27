@@ -1,0 +1,26 @@
+name,src_file,src_line,total_ns,total_perc,counts,mean_ns,min_ns,max_ns,std_ns
+Decisions,C:\Software\GitHub\UnrealVoxelSim\Simulation.Pipeline\src\UnrealVoxelSim\Simulation\Pipeline\Pipeline.cpp,33,225247091,0.843445,605,372309,317891,571870,49059.444348
+Terrain residency,C:\Software\GitHub\UnrealVoxelSim\Testbed.Qt\app\UnrealVoxelSim\Testbed\Qt\Viewport.cpp,218,7251009,0.027152,9393,771,510,47921,1376.898156
+Qt render frame,C:\Software\GitHub\UnrealVoxelSim\Testbed.Qt\app\UnrealVoxelSim\Testbed\Qt\Viewport.cpp,216,5885230040,22.037435,9392,626621,506217,1239853,71131.010405
+Pawn controller update,C:\Software\GitHub\UnrealVoxelSim\Testbed.Qt\src\UnrealVoxelSim\Testbed\PawnController.cpp,79,225020733,0.842597,605,371935,317581,571390,49033.943529
+Voxel topology update,C:\Software\GitHub\UnrealVoxelSim\Navigation.Voxel\src\UnrealVoxelSim\Navigation\Voxel\Planner.cpp,1802,606664241,2.271674,605,1002750,677634,1984160,313848.368819
+Terrain draw submission,C:\Software\GitHub\UnrealVoxelSim\Testbed.Qt\app\UnrealVoxelSim\Testbed\Qt\Viewport.cpp,246,1839825181,6.889285,9393,195871,108333,439858,35367.711606
+Simulation tick,C:\Software\GitHub\UnrealVoxelSim\Simulation.Pipeline\src\UnrealVoxelSim\Simulation\Pipeline\Pipeline.cpp,23,1534327113,5.745338,605,2536077,2030100,3774242,352366.676634
+Navigation topology,C:\Software\GitHub\UnrealVoxelSim\Simulation.Pipeline\src\UnrealVoxelSim\Simulation\Pipeline\Pipeline.cpp,41,606884250,2.272498,605,1003114,677904,1984690,313847.074337
+Resolve reachability and corridors,C:\Software\GitHub\UnrealVoxelSim\Navigation.Voxel\src\UnrealVoxelSim\Navigation\Voxel\Planner.cpp,1571,80268364,0.300568,605,132674,66942,288240,37940.241062
+Voxel planner advance,C:\Software\GitHub\UnrealVoxelSim\Navigation.Voxel\src\UnrealVoxelSim\Navigation\Voxel\Planner.cpp,1555,169816700,0.635884,605,280688,135025,705104,104761.757863
+Movement,C:\Software\GitHub\UnrealVoxelSim\Simulation.Pipeline\src\UnrealVoxelSim\Simulation\Pipeline\Pipeline.cpp,53,326672165,1.223235,605,539953,499707,872380,43749.140708
+Post-movement events,C:\Software\GitHub\UnrealVoxelSim\Simulation.Pipeline\src\UnrealVoxelSim\Simulation\Pipeline\Pipeline.cpp,57,1046775,0.003920,605,1730,990,7450,853.858815
+Pre-navigation events,C:\Software\GitHub\UnrealVoxelSim\Simulation.Pipeline\src\UnrealVoxelSim\Simulation\Pipeline\Pipeline.cpp,29,2174719,0.008143,605,3594,2070,26891,2432.179968
+Resolve request endpoints,C:\Software\GitHub\UnrealVoxelSim\Navigation.Voxel\src\UnrealVoxelSim\Navigation\Voxel\Planner.cpp,1559,88863877,0.332754,605,146882,47091,474776,90976.357189
+Solid commands,C:\Software\GitHub\UnrealVoxelSim\Simulation.Pipeline\src\UnrealVoxelSim\Simulation\Pipeline\Pipeline.cpp,25,1654359,0.006195,605,2734,1810,24791,1675.230718
+Build navigation tile,C:\Software\GitHub\UnrealVoxelSim\Navigation.Voxel\src\UnrealVoxelSim\Navigation\Voxel\Planner.cpp,380,595057300,2.228211,605,983565,661742,1959850,313739.993739
+Qt update callback,C:\Software\GitHub\UnrealVoxelSim\Testbed.Qt\app\UnrealVoxelSim\Testbed\Qt\Window.cpp,74,1760337823,6.591642,18762,93824,2460,3791623,453399.419092
+Viewport update request,C:\Software\GitHub\UnrealVoxelSim\Testbed.Qt\app\UnrealVoxelSim\Testbed\Qt\Viewport.cpp,158,183852015,0.688440,18762,9799,1770,165936,8510.745606
+Navigation planning,C:\Software\GitHub\UnrealVoxelSim\Simulation.Pipeline\src\UnrealVoxelSim\Simulation\Pipeline\Pipeline.cpp,45,170040416,0.636722,605,281058,135265,705434,104800.046063
+Terrain job completion,C:\Software\GitHub\UnrealVoxelSim\Testbed.Qt\app\UnrealVoxelSim\Testbed\Qt\Viewport.cpp,222,10580596,0.039619,9393,1126,610,111193,1940.421888
+Terrain job scheduling,C:\Software\GitHub\UnrealVoxelSim\Testbed.Qt\app\UnrealVoxelSim\Testbed\Qt\Viewport.cpp,226,14022266,0.052507,9393,1492,1070,81032,2158.416445
+Pawn visibility collection,C:\Software\GitHub\UnrealVoxelSim\Testbed.Qt\app\UnrealVoxelSim\Testbed\Qt\Viewport.cpp,265,3341713298,12.513154,9392,355804,321741,696674,39666.343407
+Navigation commands,C:\Software\GitHub\UnrealVoxelSim\Simulation.Pipeline\src\UnrealVoxelSim\Simulation\Pipeline\Pipeline.cpp,37,11407600,0.042716,605,18855,1160,284410,46347.904686
+Expand fine paths,C:\Software\GitHub\UnrealVoxelSim\Navigation.Voxel\src\UnrealVoxelSim\Navigation\Voxel\Planner.cpp,1578,107311,0.000402,605,177,110,2060,127.325728
+Navigation following,C:\Software\GitHub\UnrealVoxelSim\Simulation.Pipeline\src\UnrealVoxelSim\Simulation\Pipeline\Pipeline.cpp,49,188213400,0.704771,605,311096,290350,506468,24471.089239

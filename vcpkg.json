@@ -13,5 +13,20 @@
         "widgets"
       ]
     }
-  ]
+  ],
+  "features": {
+    "profiling-tracy": {
+      "description": "Enable the on-demand Tracy client and command-line capture tools used by profiling builds.",
+      "dependencies": [
+        {
+          "name": "tracy",
+          "default-features": false,
+          "features": [
+            "cli-tools",
+            "on-demand"
+          ]
+        }
+      ]
+    }
+  }
 }
