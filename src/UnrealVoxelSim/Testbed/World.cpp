@@ -14,7 +14,7 @@
 #include "UnrealVoxelSim/Navigation/Api/Command.h"
 #include "UnrealVoxelSim/Navigation/Api/ExecutionState.h"
 #include "UnrealVoxelSim/Navigation/Api/Goal.h"
-#include "UnrealVoxelSim/Navigation/Api/NavigationExecutionComponent.h"
+#include "UnrealVoxelSim/Navigation/Api/ExecutionStateComponent.h"
 #include "UnrealVoxelSim/Navigation/Api/Start.h"
 #include "UnrealVoxelSim/Navigation/Following/Controller.h"
 #include "UnrealVoxelSim/Navigation/Voxel/Planner.h"
@@ -260,10 +260,10 @@ namespace UnrealVoxelSim::Testbed
 		return PawnState{position->get().Value, velocity->get().Value, profile->get().Profile, grounded->get().Value};
 	}
 
-	std::optional<Navigation::Api::NavigationExecutionComponent>
+	std::optional<Navigation::Api::ExecutionStateComponent>
 	World::ReadNavigation(const Ecs::Api::EntityId entity) const noexcept
 	{
-		const auto execution = m_Impl->Entities->Get<Navigation::Api::NavigationExecutionComponent>(entity);
+		const auto execution = m_Impl->Entities->Get<Navigation::Api::ExecutionStateComponent>(entity);
 		return execution ? std::optional{execution->get()} : std::nullopt;
 	}
 
@@ -344,7 +344,7 @@ namespace UnrealVoxelSim::Testbed
 		RuntimeStats result{m_Impl->Simulation->CurrentTick(), m_Impl->Pawns->Entities().size()};
 		for (const auto pawn : m_Impl->Pawns->Entities())
 		{
-			const auto execution = m_Impl->Entities->Get<Navigation::Api::NavigationExecutionComponent>(pawn);
+			const auto execution = m_Impl->Entities->Get<Navigation::Api::ExecutionStateComponent>(pawn);
 			if (!execution)
 				continue;
 			switch (execution->get().State)

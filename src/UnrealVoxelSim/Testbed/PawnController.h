@@ -77,7 +77,11 @@ namespace UnrealVoxelSim::Testbed
 		Navigation::Api::ICommandSink& m_NavigationCommands;
 		Profiling::Api::IRecorder& m_Profiling;
 		Configuration m_Configuration;
+
+		// TODO Use ECS components
 		std::vector<Ecs::Api::EntityId> m_Entities;
+
+		// TODO States and Cancels should be stored in ECS as components.
 		std::vector<State> m_States;
 		std::vector<PendingCancel> m_PendingCancels;
 		std::size_t m_TargetPopulation{};

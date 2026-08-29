@@ -7,7 +7,7 @@
 #include "UnrealVoxelSim/Navigation/Api/Command.h"
 #include "UnrealVoxelSim/Navigation/Api/ExecutionState.h"
 #include "UnrealVoxelSim/Navigation/Api/Goal.h"
-#include "UnrealVoxelSim/Navigation/Api/NavigationExecutionComponent.h"
+#include "UnrealVoxelSim/Navigation/Api/ExecutionStateComponent.h"
 #include "UnrealVoxelSim/Navigation/Api/Start.h"
 #include "UnrealVoxelSim/Profiling/Api/Macros.h"
 #include "UnrealVoxelSim/Simulation/Api/CommandSourceId.h"
@@ -105,7 +105,7 @@ namespace UnrealVoxelSim::Testbed
 					else
 					{
 						const auto execution =
-							m_EntitiesRegistry.Get<Navigation::Api::NavigationExecutionComponent>(m_Entities[index]);
+							m_EntitiesRegistry.Get<Navigation::Api::ExecutionStateComponent>(m_Entities[index]);
 						if (!execution || execution->get().State == Navigation::Api::ExecutionState::Arrived ||
 							execution->get().State == Navigation::Api::ExecutionState::Unreachable ||
 							execution->get().State == Navigation::Api::ExecutionState::Cancelled)
@@ -235,7 +235,7 @@ namespace UnrealVoxelSim::Testbed
 	void PawnController::RemovePawn()
 	{
 		const auto entity = m_Entities.back();
-		if (const auto execution = m_EntitiesRegistry.Get<Navigation::Api::NavigationExecutionComponent>(entity))
+		if (const auto execution = m_EntitiesRegistry.Get<Navigation::Api::ExecutionStateComponent>(entity))
 			m_PendingCancels.push_back({entity, execution->get().Execution});
 		if (!m_EntitiesRegistry.Destroy(entity))
 			throw std::logic_error{"Pawn population state became inconsistent."};

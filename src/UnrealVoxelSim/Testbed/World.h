@@ -2,7 +2,7 @@
 
 #include "UnrealVoxelSim/Ecs/Api/EntityId.h"
 #include "UnrealVoxelSim/Movement/Api/ProfileId.h"
-#include "UnrealVoxelSim/Navigation/Api/NavigationExecutionComponent.h"
+#include "UnrealVoxelSim/Navigation/Api/ExecutionStateComponent.h"
 #include "UnrealVoxelSim/Profiling/Api/IRecorder.h"
 #include "UnrealVoxelSim/Simulation/Api/IPacer.h"
 #include "UnrealVoxelSim/Simulation/Api/IStepper.h"
@@ -65,7 +65,7 @@ namespace UnrealVoxelSim::Testbed
 
 		[[nodiscard]] std::span<const Ecs::Api::EntityId> Pawns() const noexcept;
 		[[nodiscard]] std::optional<PawnState> ReadPawn(Ecs::Api::EntityId entity) const noexcept;
-		[[nodiscard]] std::optional<Navigation::Api::NavigationExecutionComponent>
+		[[nodiscard]] std::optional<Navigation::Api::ExecutionStateComponent>
 		ReadNavigation(Ecs::Api::EntityId entity) const noexcept;
 		[[nodiscard]] std::size_t TargetPopulation() const noexcept;
 		[[nodiscard]] std::size_t MaximumPopulation() const noexcept;
