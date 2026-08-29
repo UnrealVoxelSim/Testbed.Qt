@@ -9,7 +9,7 @@
 #include "UnrealVoxelSim/Math/Api/FixedPointScalar.h"
 #include "UnrealVoxelSim/Movement/Api/GroundedComponent.h"
 #include "UnrealVoxelSim/Movement/Api/GroundedProfile.h"
-#include "UnrealVoxelSim/Movement/Api/MovementProfileComponent.h"
+#include "UnrealVoxelSim/Movement/Api/ProfileComponent.h"
 #include "UnrealVoxelSim/Movement/Voxel/Controller.h"
 #include "UnrealVoxelSim/Navigation/Api/Command.h"
 #include "UnrealVoxelSim/Navigation/Api/ExecutionState.h"
@@ -253,7 +253,7 @@ namespace UnrealVoxelSim::Testbed
 	{
 		const auto position = m_Impl->Entities->Get<Spatial::Api::PositionComponent>(entity);
 		const auto velocity = m_Impl->Entities->Get<Spatial::Api::LinearVelocityComponent>(entity);
-		const auto profile = m_Impl->Entities->Get<Movement::Api::MovementProfileComponent>(entity);
+		const auto profile = m_Impl->Entities->Get<Movement::Api::ProfileComponent>(entity);
 		const auto grounded = m_Impl->Entities->Get<Movement::Api::GroundedComponent>(entity);
 		if (!position || !velocity || !profile || !grounded)
 			return std::nullopt;

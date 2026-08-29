@@ -2,7 +2,7 @@
 
 #include "UnrealVoxelSim/Math/Api/FixedPointScalar.h"
 #include "UnrealVoxelSim/Movement/Api/GroundedComponent.h"
-#include "UnrealVoxelSim/Movement/Api/MovementInputComponent.h"
+#include "UnrealVoxelSim/Movement/Api/InputComponent.h"
 #include "UnrealVoxelSim/Navigation/Api/Cancel.h"
 #include "UnrealVoxelSim/Navigation/Api/Command.h"
 #include "UnrealVoxelSim/Navigation/Api/ExecutionState.h"
@@ -212,10 +212,10 @@ namespace UnrealVoxelSim::Testbed
 		const auto entity = m_EntitiesRegistry.Create();
 		if (!m_EntitiesRegistry.Assign<Spatial::Api::PositionComponent>(entity, Spawn(index)) ||
 			!m_EntitiesRegistry.Assign<Spatial::Api::LinearVelocityComponent>(entity, Spatial::Api::LinearVelocity{}) ||
-			!m_EntitiesRegistry.Assign<Movement::Api::MovementProfileComponent>(entity, m_Configuration.Profile) ||
+			!m_EntitiesRegistry.Assign<Movement::Api::ProfileComponent>(entity, m_Configuration.Profile) ||
 			!m_EntitiesRegistry.Assign<Movement::Api::GroundedComponent>(entity, true) ||
-			!m_EntitiesRegistry.Assign<Movement::Api::MovementInputComponent>(entity,
-																			  Movement::Api::MovementInputComponent{}))
+			!m_EntitiesRegistry.Assign<Movement::Api::InputComponent>(entity,
+																			  Movement::Api::InputComponent{}))
 		{
 			static_cast<void>(m_EntitiesRegistry.Destroy(entity));
 			throw std::runtime_error{"A navigation pawn could not be registered with movement."};

@@ -2,7 +2,7 @@
 
 #include "UnrealVoxelSim/Ecs/Api/EntityId.h"
 #include "UnrealVoxelSim/Ecs/EnTT/Registry.h"
-#include "UnrealVoxelSim/Movement/Api/MovementProfileComponent.h"
+#include "UnrealVoxelSim/Movement/Api/ProfileComponent.h"
 #include "UnrealVoxelSim/Movement/Api/ProfileId.h"
 #include "UnrealVoxelSim/Navigation/Api/ExecutionId.h"
 #include "UnrealVoxelSim/Navigation/Api/ICommandSink.h"
