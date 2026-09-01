@@ -19,7 +19,6 @@ target_link_libraries(
         UnrealVoxelSim.Movement.Api
         UnrealVoxelSim.Movement.Voxel
         UnrealVoxelSim.Navigation.Api
-        UnrealVoxelSim.Navigation.Following
         UnrealVoxelSim.Navigation.Voxel
         UnrealVoxelSim.Profiling.Api
         UnrealVoxelSim.Testbed.Worlds
