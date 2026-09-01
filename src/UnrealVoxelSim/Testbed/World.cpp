@@ -13,6 +13,7 @@
 #include "UnrealVoxelSim/Spatial/Api/LinearVelocityComponent.h"
 #include "UnrealVoxelSim/Spatial/Api/PositionComponent.h"
 #include "UnrealVoxelSim/Voxel/Solid/Api/Cell.h"
+#include "UnrealVoxelSim/Voxel/Solid/Api/MaterialTraversal.h"
 #include "UnrealVoxelSim/Voxel/Solid/Api/Placement.h"
 #include "UnrealVoxelSim/Voxel/Solid/Api/StandardMaterials.h"
 
@@ -113,7 +114,7 @@ namespace UnrealVoxelSim::Testbed
 				{
 					const auto height =
 						static_cast<std::int32_t>(std::round(std::sin(static_cast<double>(x) * 0.055) * 3.0 +
-							std::cos(static_cast<double>(y) * 0.047) * 3.0));
+															 std::cos(static_cast<double>(y) * 0.047) * 3.0));
 					for (std::int32_t z = -8; z <= height; ++z)
 					{
 						auto material = Materials::Stone;
@@ -142,9 +143,10 @@ namespace UnrealVoxelSim::Testbed
 		}
 		m_Descriptor = configuration->Descriptor;
 
-		constexpr std::array materials{Voxel::Solid::Api::StandardMaterials::Dirt,
-									   Voxel::Solid::Api::StandardMaterials::Grass,
-									   Voxel::Solid::Api::StandardMaterials::Stone};
+		constexpr std::array materials{
+			Voxel::Solid::Api::MaterialTraversal{Voxel::Solid::Api::StandardMaterials::Dirt},
+			Voxel::Solid::Api::MaterialTraversal{Voxel::Solid::Api::StandardMaterials::Grass},
+			Voxel::Solid::Api::MaterialTraversal{Voxel::Solid::Api::StandardMaterials::Stone}};
 		const std::array profiles{Movement::Api::GroundedProfile{Movement::Api::ProfileId{1}}};
 		const std::array navigationPreparation{configuration->InitialNavigationRegion};
 		m_Game = std::make_unique<Composition::Game>(
@@ -192,7 +194,10 @@ namespace UnrealVoxelSim::Testbed
 	const WorldDescriptor& World::Descriptor() const noexcept { return m_Descriptor; }
 	const Voxel::Api::IBounds& World::Bounds() const noexcept { return m_Game->GetVoxelWorldBoundsProvider(); }
 	const Voxel::Solid::Api::IReader& World::Solids() const noexcept { return m_Game->GetSolidVoxelsReader(); }
-	const Voxel::Solid::Api::IRegionReader& World::SolidRegions() const noexcept { return m_Game->GetSolidVoxelsRegionReader(); }
+	const Voxel::Solid::Api::IRegionReader& World::SolidRegions() const noexcept
+	{
+		return m_Game->GetSolidVoxelsRegionReader();
+	}
 	Voxel::Solid::Api::IChangeSource& World::SolidChanges() noexcept { return m_Game->GetSolidVoxelsChangeSource(); }
 	Voxel::Solid::Api::IPlacer& World::SolidPlacement() noexcept { return m_Game->GetSolidVoxelPlacer(); }
 	Voxel::Solid::Api::IRemover& World::SolidRemoval() noexcept { return m_Game->GetSolidVoxelRemover(); }
@@ -299,8 +304,9 @@ namespace UnrealVoxelSim::Testbed
 			Math::Api::FixedPointScalar::FromRaw(static_cast<std::int64_t>(destination.X) * one + half),
 			Math::Api::FixedPointScalar::FromRaw(static_cast<std::int64_t>(destination.Y) * one + half),
 			Math::Api::FixedPointScalar::FromRaw(static_cast<std::int64_t>(destination.Z) * one)};
-		const auto started =
-			m_Game->GetNavigation().BeginNavigateToGoal(pawn, {goal, Math::Api::FixedPointScalar::FromRaw(one / 4)}).has_value();
+		const auto started = m_Game->GetNavigation()
+								 .BeginNavigateToGoal(pawn, {goal, Math::Api::FixedPointScalar::FromRaw(one / 4)})
+								 .has_value();
 		if (started)
 		{
 			m_Pawns->TrackExternalNavigation(pawn);
