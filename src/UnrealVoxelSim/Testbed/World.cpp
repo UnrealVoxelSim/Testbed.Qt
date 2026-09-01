@@ -68,7 +68,9 @@ namespace UnrealVoxelSim::Testbed
 		{
 			std::array<WorldDescriptor, Configurations.size()> descriptors{};
 			for (std::size_t index = 0; index < Configurations.size(); ++index)
+			{
 				descriptors[index] = Configurations[index].Descriptor;
+			}
 			return descriptors;
 		}
 
@@ -95,28 +97,38 @@ namespace UnrealVoxelSim::Testbed
 				const auto length = static_cast<std::size_t>(configuration.Bounds.Max.Y - configuration.Bounds.Min.Y);
 				terrain.reserve(width * length);
 				for (std::int32_t y = configuration.Bounds.Min.Y; y < configuration.Bounds.Max.Y; ++y)
+				{
 					for (std::int32_t x = configuration.Bounds.Min.X; x < configuration.Bounds.Max.X; ++x)
+					{
 						terrain.push_back({{x, y, 0}, Materials::Grass});
+					}
+				}
 				return terrain;
 			}
 
 			terrain.reserve(400'000);
 			for (std::int32_t y = -96; y < 96; ++y)
+			{
 				for (std::int32_t x = -96; x < 96; ++x)
 				{
 					const auto height =
 						static_cast<std::int32_t>(std::round(std::sin(static_cast<double>(x) * 0.055) * 3.0 +
-															 std::cos(static_cast<double>(y) * 0.047) * 3.0));
+							std::cos(static_cast<double>(y) * 0.047) * 3.0));
 					for (std::int32_t z = -8; z <= height; ++z)
 					{
 						auto material = Materials::Stone;
 						if (z == height)
+						{
 							material = Materials::Grass;
+						}
 						else if (z >= height - 2)
+						{
 							material = Materials::Dirt;
+						}
 						terrain.push_back({{x, y, z}, material});
 					}
 				}
+			}
 			return terrain;
 		}
 	} // namespace
@@ -125,7 +137,9 @@ namespace UnrealVoxelSim::Testbed
 	{
 		const auto* configuration = FindConfiguration(id);
 		if (configuration == nullptr)
+		{
 			throw std::invalid_argument{"Unknown test world: " + std::string{id}};
+		}
 		m_Descriptor = configuration->Descriptor;
 
 		constexpr std::array materials{Voxel::Solid::Api::StandardMaterials::Dirt,
@@ -150,7 +164,9 @@ namespace UnrealVoxelSim::Testbed
 
 		auto terrain = BuildTerrain(*configuration);
 		if (!m_Game->GetSolidVoxelPlacer().Place(terrain))
+		{
 			throw std::runtime_error{"The initial solid terrain could not be created."};
+		}
 
 		m_Pawns = std::make_unique<PawnController>(
 			m_Game->GetEcsRegistry(),
@@ -193,7 +209,9 @@ namespace UnrealVoxelSim::Testbed
 		const auto profile = entities.Get<Movement::Api::ProfileComponent>(entity);
 		const auto grounded = entities.Get<Movement::Api::GroundedComponent>(entity);
 		if (!position || !velocity || !profile || !grounded)
+		{
 			return std::nullopt;
+		}
 		return PawnState{position->get().Value, velocity->get().Value, profile->get().Profile, grounded->get().Value};
 	}
 
@@ -211,36 +229,60 @@ namespace UnrealVoxelSim::Testbed
 	bool World::Fill(const Voxel::Api::Region region, const Voxel::Solid::Api::MaterialId material)
 	{
 		if (!region.IsValid() || region.IsEmpty() || !material.IsValid())
+		{
 			return false;
+		}
 		std::vector<Voxel::Solid::Api::Cell> cells(*region.CellCount());
 		if (!m_Game->GetSolidVoxelsRegionReader().ReadRegion(region, cells))
+		{
 			return false;
+		}
 		std::vector<Voxel::Solid::Api::Placement> placements;
 		placements.reserve(cells.size());
 		std::size_t index{};
 		for (auto z = region.Min.Z; z < region.Max.Z; ++z)
+		{
 			for (auto y = region.Min.Y; y < region.Max.Y; ++y)
+			{
 				for (auto x = region.Min.X; x < region.Max.X; ++x)
+				{
 					if (cells[index++].IsEmpty())
+					{
 						placements.push_back({{x, y, z}, material});
+					}
+				}
+			}
+		}
 		return placements.empty() || m_Game->GetSolidVoxelPlacer().Place(placements).has_value();
 	}
 
 	bool World::Erase(const Voxel::Api::Region region)
 	{
 		if (!region.IsValid() || region.IsEmpty())
+		{
 			return false;
+		}
 		std::vector<Voxel::Solid::Api::Cell> cells(*region.CellCount());
 		if (!m_Game->GetSolidVoxelsRegionReader().ReadRegion(region, cells))
+		{
 			return false;
+		}
 		std::vector<Voxel::Api::Position> positions;
 		positions.reserve(cells.size());
 		std::size_t index{};
 		for (auto z = region.Min.Z; z < region.Max.Z; ++z)
+		{
 			for (auto y = region.Min.Y; y < region.Max.Y; ++y)
+			{
 				for (auto x = region.Min.X; x < region.Max.X; ++x)
+				{
 					if (!cells[index++].IsEmpty())
+					{
 						positions.push_back({x, y, z});
+					}
+				}
+			}
+		}
 		return positions.empty() || m_Game->GetSolidVoxelRemover().Remove(positions).has_value();
 	}
 
@@ -248,7 +290,9 @@ namespace UnrealVoxelSim::Testbed
 	{
 		const auto pawns = m_Pawns->Entities();
 		if (std::ranges::find(pawns, pawn) == pawns.end())
+		{
 			return false;
+		}
 		constexpr auto one = Math::Api::FixedPointScalar::OneRaw;
 		constexpr auto half = one / 2;
 		const Spatial::Api::Position goal{
@@ -258,7 +302,9 @@ namespace UnrealVoxelSim::Testbed
 		const auto started =
 			m_Game->GetNavigation().BeginNavigateToGoal(pawn, {goal, Math::Api::FixedPointScalar::FromRaw(one / 4)}).has_value();
 		if (started)
+		{
 			m_Pawns->TrackExternalNavigation(pawn);
+		}
 		return started;
 	}
 
@@ -270,7 +316,9 @@ namespace UnrealVoxelSim::Testbed
 		{
 			const auto execution = entities.Get<Navigation::Api::ExecutionStateComponent>(pawn);
 			if (!execution)
+			{
 				continue;
+			}
 			switch (execution->get().State)
 			{
 			case Navigation::Api::ExecutionState::Planning:
@@ -301,7 +349,9 @@ namespace UnrealVoxelSim::Testbed
 	std::unique_ptr<World> WorldCatalog::Create(const std::string_view id, Profiling::Api::IRecorder& profiling)
 	{
 		if (FindConfiguration(id) == nullptr)
+		{
 			return nullptr;
+		}
 		return std::unique_ptr<World>{new World{id, profiling}};
 	}
 }
