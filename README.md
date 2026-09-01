@@ -25,33 +25,32 @@ supports up to 36,864 simultaneous pawns in the configured spawn lattice.
 - Select the Select tool and left-click a pawn to make it active.
 - Hold the left mouse button to apply the selected Fill or Erase tool.
 - Fill targets the empty cell adjacent to the selected face; Erase targets the hit solid cell.
-- Select Navigate and left-click a visible voxel face to queue a goal for the selected pawn in the adjacent empty cell.
+- Select Navigate and left-click a visible voxel face to start navigation toward the adjacent empty cell.
 - Select Dirt, Grass, or Stone independently from brush mode and size.
 - Set the camera-relative rendering distance from the toolbar in world cells.
 
 Each stress-world pawn uses a reproducibly seeded random sequence: half of its goals select a voxel on the ground surface
 and half select from the world's full vertical range, deliberately retaining invalid or unreachable destinations. After
-arrival, failure, or cancellation, it waits 60 simulation ticks before submitting another stamped navigation command.
+arrival, failure, or cancellation, it waits 60 simulation ticks before starting another navigation execution.
 Manual tools remain available for every world.
 
-A manual or autonomous goal creates a stamped `Navigation.Api::Start` for the current simulation tick and submits it to
-the navigation-specific command sink; the Qt adapter never calls the planner directly. Autonomous population and goal
-updates run in an explicit pipeline phase immediately before navigation command processing.
+A manual or autonomous goal calls `Navigation.Api::INavigation::Start` synchronously; the Qt adapter never calls the
+planner directly. Autonomous population and goal updates run as the first explicitly ordered simulation participant.
 
 ## Simulation composition
 
-The head-agnostic world library owns scenario composition. It injects domain implementations into
-`Simulation.Pipeline`, whose concrete implementation owns this per-tick order:
+`UnrealVoxelSim.Composition.Game` constructs only the core domains and generic simulation pipeline. The
+`UnrealVoxelSim.Testbed.Worlds` add-on owns world selection, terrain generation, pawn population, and autonomous pawn
+decisions, and prepends its participant to the core sequence:
 
 ```text
-solid commands -> queued solid-change events -> autonomous pawn commands -> navigation commands -> topology update
--> planner advance -> following update -> movement update -> queued post-movement events
+autonomous pawn decisions -> voxel topology and planner advance -> following update -> movement update
 ```
 
 Neither Qt nor a future engine adapter can reorder those phases. The fixed-step engine only invokes the pipeline and
 does not know these domains or their order. Navigation topology is
-prepared proactively for the initial world region. Later solid changes flow through `Voxel.Solid.Navigation` into
-planner invalidation before topology and query work. Planning may deliberately remain pending for several 20 ms
+prepared proactively for the initial world region. Later solid changes are delivered immediately to the
+Navigation-owned invalidation adapter before topology and query work. Planning may deliberately remain pending for several 20 ms
 simulation steps while deterministic work budgets are consumed; changing presentation speed does not change those
 per-tick budgets.
 

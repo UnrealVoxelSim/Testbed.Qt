@@ -53,6 +53,7 @@ FetchContent_MakeAvailable(uvsbuild)
 
 include("${uvsbuild_SOURCE_DIR}/UnrealVoxelSim.Build.CMake.cmake")
 
+UnrealVoxelSimAddInternalDependency(GITHUB_REPOSITORY UnrealVoxelSim/Composition.Game)
 UnrealVoxelSimAddInternalDependency(GITHUB_REPOSITORY UnrealVoxelSim/Events.InMemory)
 UnrealVoxelSimAddInternalDependency(GITHUB_REPOSITORY UnrealVoxelSim/Ecs.EnTT)
 UnrealVoxelSimAddInternalDependency(GITHUB_REPOSITORY UnrealVoxelSim/Movement.Voxel)
@@ -66,8 +67,6 @@ UnrealVoxelSimAddInternalDependency(GITHUB_REPOSITORY UnrealVoxelSim/Simulation.
 UnrealVoxelSimAddInternalDependency(GITHUB_REPOSITORY UnrealVoxelSim/Simulation.Pipeline)
 UnrealVoxelSimAddInternalDependency(GITHUB_REPOSITORY UnrealVoxelSim/Voxel.Chunked)
 UnrealVoxelSimAddInternalDependency(GITHUB_REPOSITORY UnrealVoxelSim/Voxel.Solid)
-UnrealVoxelSimAddInternalDependency(GITHUB_REPOSITORY UnrealVoxelSim/Voxel.Solid.Commands)
-UnrealVoxelSimAddInternalDependency(GITHUB_REPOSITORY UnrealVoxelSim/Voxel.Solid.Navigation)
 UnrealVoxelSimAddInternalDependency(GITHUB_REPOSITORY UnrealVoxelSim/Voxel.Solid.Rendering)
 
 UnrealVoxelSimConfigureModule()

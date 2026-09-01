@@ -3,6 +3,7 @@
 #include "UnrealVoxelSim/Ecs/Api/EntityId.h"
 #include "UnrealVoxelSim/Movement/Api/ProfileId.h"
 #include "UnrealVoxelSim/Navigation/Api/ExecutionStateComponent.h"
+#include "UnrealVoxelSim/Navigation/Api/INavigation.h"
 #include "UnrealVoxelSim/Profiling/Api/IRecorder.h"
 #include "UnrealVoxelSim/Simulation/Api/IPacer.h"
 #include "UnrealVoxelSim/Simulation/Api/IStepper.h"
@@ -10,8 +11,10 @@
 #include "UnrealVoxelSim/Spatial/Api/Position.h"
 #include "UnrealVoxelSim/Voxel/Api/IBounds.h"
 #include "UnrealVoxelSim/Voxel/Solid/Api/IChangeSource.h"
+#include "UnrealVoxelSim/Voxel/Solid/Api/IPlacer.h"
 #include "UnrealVoxelSim/Voxel/Solid/Api/IReader.h"
 #include "UnrealVoxelSim/Voxel/Solid/Api/IRegionReader.h"
+#include "UnrealVoxelSim/Voxel/Solid/Api/IRemover.h"
 #include "UnrealVoxelSim/Voxel/Solid/Api/MaterialId.h"
 
 #include <array>
@@ -20,9 +23,17 @@
 #include <optional>
 #include <span>
 #include <string_view>
+#include <vector>
+
+namespace UnrealVoxelSim::Composition
+{
+	class Game;
+}
 
 namespace UnrealVoxelSim::Testbed
 {
+	class PawnController;
+
 	struct WorldDescriptor final
 	{
 		std::string_view Id;
@@ -60,26 +71,30 @@ namespace UnrealVoxelSim::Testbed
 		[[nodiscard]] const Voxel::Solid::Api::IReader& Solids() const noexcept;
 		[[nodiscard]] const Voxel::Solid::Api::IRegionReader& SolidRegions() const noexcept;
 		[[nodiscard]] Voxel::Solid::Api::IChangeSource& SolidChanges() noexcept;
+		[[nodiscard]] Voxel::Solid::Api::IPlacer& SolidPlacement() noexcept;
+		[[nodiscard]] Voxel::Solid::Api::IRemover& SolidRemoval() noexcept;
+		[[nodiscard]] Navigation::Api::INavigation& Navigation() noexcept;
 		[[nodiscard]] Simulation::Api::IPacer& Pacer() noexcept;
 		[[nodiscard]] Simulation::Api::IStepper& Stepper() noexcept;
 
-		[[nodiscard]] std::span<const Ecs::Api::EntityId> Pawns() const noexcept;
+		[[nodiscard]] std::vector<Ecs::Api::EntityId> Pawns() const;
 		[[nodiscard]] std::optional<PawnState> ReadPawn(Ecs::Api::EntityId entity) const noexcept;
 		[[nodiscard]] std::optional<Navigation::Api::ExecutionStateComponent>
 		ReadNavigation(Ecs::Api::EntityId entity) const noexcept;
 		[[nodiscard]] std::size_t TargetPopulation() const noexcept;
 		[[nodiscard]] std::size_t MaximumPopulation() const noexcept;
 		void SetTargetPopulation(std::size_t population);
-
 		[[nodiscard]] bool Fill(Voxel::Api::Region region, Voxel::Solid::Api::MaterialId material);
 		[[nodiscard]] bool Erase(Voxel::Api::Region region);
 		[[nodiscard]] bool Navigate(Ecs::Api::EntityId pawn, Voxel::Api::Position destination);
 		[[nodiscard]] RuntimeStats Stats() const noexcept;
 
 	private:
-		class Impl;
-		explicit World(std::unique_ptr<Impl> implementation) noexcept;
-		std::unique_ptr<Impl> m_Impl;
+		World(std::string_view id, Profiling::Api::IRecorder& profiling);
+
+		WorldDescriptor m_Descriptor;
+		std::unique_ptr<Composition::Game> m_Game;
+		std::unique_ptr<PawnController> m_Pawns;
 
 		friend class WorldCatalog;
 	};
@@ -90,4 +105,4 @@ namespace UnrealVoxelSim::Testbed
 		[[nodiscard]] static std::span<const WorldDescriptor> Worlds() noexcept;
 		[[nodiscard]] static std::unique_ptr<World> Create(std::string_view id, Profiling::Api::IRecorder& profiling);
 	};
-} // namespace UnrealVoxelSim::Testbed
+}

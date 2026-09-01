@@ -408,7 +408,7 @@ std::int32_t Viewport::FloorDiv(const std::int32_t value) noexcept
 
 UnrealVoxelSim::Voxel::Api::Region Viewport::TileRegion(const TileKey key) const noexcept
 {
-    const auto bounds = m_World.Bounds().Bounds();
+    const auto bounds = m_World.Bounds().GetBounds();
     const auto minimumX = static_cast<std::int64_t>(key.X) * TileEdge;
     const auto minimumY = static_cast<std::int64_t>(key.Y) * TileEdge;
     const auto minimumZ = static_cast<std::int64_t>(key.Z) * TileEdge;
@@ -527,7 +527,7 @@ void Viewport::MarkDirty(const UnrealVoxelSim::Voxel::Api::Region region)
     {
         return;
     }
-    const auto bounds = m_World.Bounds().Bounds();
+    const auto bounds = m_World.Bounds().GetBounds();
     const UnrealVoxelSim::Voxel::Api::Region expanded{{region.Min.X > bounds.Min.X ? region.Min.X - 1 : region.Min.X,
                                                        region.Min.Y > bounds.Min.Y ? region.Min.Y - 1 : region.Min.Y,
                                                        region.Min.Z > bounds.Min.Z ? region.Min.Z - 1 : region.Min.Z},
@@ -716,7 +716,7 @@ std::optional<Viewport::Hit> Viewport::Raycast(const QPoint &screenPosition) con
 
     UnrealVoxelSim::Voxel::Api::Offset normal{};
     float distance{};
-    const auto bounds = m_World.Bounds().Bounds();
+    const auto bounds = m_World.Bounds().GetBounds();
     for (std::size_t iteration = 0; iteration < 768 && distance <= 256.0F; ++iteration)
     {
         const UnrealVoxelSim::Voxel::Api::Position position{cell[0], cell[1], cell[2]};
@@ -775,7 +775,7 @@ void Viewport::ApplyBrush(const QPoint &screenPosition)
     }
     m_LastBrushCell = center;
 
-    const auto bounds = m_World.Bounds().Bounds();
+    const auto bounds = m_World.Bounds().GetBounds();
     const auto before = (m_BrushSize - 1) / 2;
     const auto after = m_BrushSize / 2;
     const UnrealVoxelSim::Voxel::Api::Region region{
@@ -791,11 +791,11 @@ void Viewport::ApplyBrush(const QPoint &screenPosition)
 
     if (m_Tool == Tool::Erase)
     {
-        m_Status = m_World.Erase(region) ? "Erase command queued" : "Erase command rejected";
+        m_Status = m_World.Erase(region) ? "Voxels erased" : "Erase rejected";
     }
     else
     {
-        m_Status = m_World.Fill(region, m_Material) ? "Fill command queued" : "Fill command rejected";
+        m_Status = m_World.Fill(region, m_Material) ? "Voxels filled" : "Fill rejected";
     }
 }
 
@@ -845,8 +845,7 @@ void Viewport::SubmitNavigation(const QPoint &screenPosition)
     foot.X += hit->Normal.X;
     foot.Y += hit->Normal.Y;
     foot.Z += hit->Normal.Z;
-    m_Status = m_World.Navigate(*m_SelectedPawn, foot) ? "Navigation execution queued"
-                                                    : "Navigation command rejected";
+    m_Status = m_World.Navigate(*m_SelectedPawn, foot) ? "Navigation started" : "Navigation rejected";
 }
 
 void Viewport::CreatePawnGpu()

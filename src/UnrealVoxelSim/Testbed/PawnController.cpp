@@ -2,16 +2,10 @@
 
 #include "UnrealVoxelSim/Math/Api/FixedPointScalar.h"
 #include "UnrealVoxelSim/Movement/Api/GroundedComponent.h"
-#include "UnrealVoxelSim/Movement/Api/InputComponent.h"
-#include "UnrealVoxelSim/Navigation/Api/Cancel.h"
-#include "UnrealVoxelSim/Navigation/Api/Command.h"
 #include "UnrealVoxelSim/Navigation/Api/ExecutionState.h"
 #include "UnrealVoxelSim/Navigation/Api/Goal.h"
 #include "UnrealVoxelSim/Navigation/Api/ExecutionStateComponent.h"
-#include "UnrealVoxelSim/Navigation/Api/Start.h"
 #include "UnrealVoxelSim/Profiling/Api/Macros.h"
-#include "UnrealVoxelSim/Simulation/Api/CommandSourceId.h"
-#include "UnrealVoxelSim/Simulation/Api/CommandStamp.h"
 #include "UnrealVoxelSim/Spatial/Api/LinearVelocityComponent.h"
 #include "UnrealVoxelSim/Spatial/Api/PositionComponent.h"
 
@@ -24,8 +18,6 @@ namespace UnrealVoxelSim::Testbed
 {
 	namespace
 	{
-		constexpr Simulation::Api::CommandSourceId AutonomousNavigationSource{3};
-
 		[[nodiscard]] constexpr std::uint64_t SaturatingAdd(const std::uint64_t left,
 															const std::uint64_t right) noexcept
 		{
@@ -35,10 +27,11 @@ namespace UnrealVoxelSim::Testbed
 	} // namespace
 
 	PawnController::PawnController(Ecs::EnTT::Registry& entities,
-								   Navigation::Api::ICommandSink& navigationCommands,
+	                               Navigation::Api::INavigation& navigation,
+	                               Movement::Api::IIntentReceiver& movementIntent,
 								   Profiling::Api::IRecorder& profiling,
 								   Configuration configuration) :
-		m_EntitiesRegistry(entities), m_NavigationCommands(navigationCommands), m_Profiling(profiling),
+		m_EntitiesRegistry(entities), m_Navigation(navigation), m_MovementIntent(movementIntent), m_Profiling(profiling),
 		m_Configuration(configuration)
 	{
 		if (!m_Configuration.Profile.IsValid() || !m_Configuration.DestinationBounds.IsValid() ||
@@ -64,38 +57,40 @@ namespace UnrealVoxelSim::Testbed
 	{
 		UNREALVOXELSIM_PROFILE_ZONE(m_Profiling, "Pawn population resize");
 		m_TargetPopulation = std::min(population, m_MaximumPopulation);
-		while (m_Entities.size() < m_TargetPopulation)
-			CreatePawn(m_Entities.size());
-		while (m_Entities.size() > m_TargetPopulation)
-			RemovePawn();
+		auto pawns = ActivePawns();
+		for (std::size_t index = pawns.size(); index < m_TargetPopulation; ++index)
+			CreatePawn(index);
+		while (pawns.size() > m_TargetPopulation)
+		{
+			RemovePawn(pawns.back());
+			pawns.pop_back();
+		}
 	}
 
 	void PawnController::TrackExternalNavigation(const Ecs::Api::EntityId entity) noexcept
 	{
-		const auto iterator = std::ranges::find(m_Entities, entity);
-		if (iterator == m_Entities.end())
+		if (!m_EntitiesRegistry.IsAlive(entity) || !m_EntitiesRegistry.Contains<PawnComponent>(entity))
 			return;
-		auto& state = m_States[static_cast<std::size_t>(std::distance(m_Entities.begin(), iterator))];
-		state.ActiveExecution = true;
-		state.ExternalCommandPending = true;
+		const auto state = m_EntitiesRegistry.Get<PawnStateComponent>(entity);
+		if (!state)
+			return;
+		state->get().ActiveExecution = true;
+		state->get().ExternalCommandPending = true;
 	}
 
-	void PawnController::UpdateDecisions(const Simulation::Api::StepContext context)
+	void PawnController::Step(const Simulation::Api::StepContext context)
 	{
 		UNREALVOXELSIM_PROFILE_ZONE(m_Profiling, "Pawn controller update");
-		std::vector<Navigation::Api::Command> commands;
-		commands.reserve(m_PendingCancels.size() + m_Entities.size());
-		for (const auto pending : m_PendingCancels)
-			commands.emplace_back(Navigation::Api::Cancel{
-				{context.Tick, AutonomousNavigationSource, ++m_CommandSequence}, pending.Entity, pending.Execution});
-
-		std::vector<std::size_t> started;
+		const auto pawns = ActivePawns();
+		std::size_t started{};
 		if (m_Configuration.AutonomousNavigation)
 		{
-			started.reserve(m_Entities.size());
-			for (std::size_t index = 0; index < m_Entities.size(); ++index)
+			for (const auto entity : pawns)
 			{
-				auto& state = m_States[index];
+				const auto stateResult = m_EntitiesRegistry.Get<PawnStateComponent>(entity);
+				if (!stateResult)
+					continue;
+				auto& state = stateResult->get();
 				if (state.ActiveExecution)
 				{
 					if (state.ExternalCommandPending)
@@ -105,7 +100,7 @@ namespace UnrealVoxelSim::Testbed
 					else
 					{
 						const auto execution =
-							m_EntitiesRegistry.Get<Navigation::Api::ExecutionStateComponent>(m_Entities[index]);
+							m_EntitiesRegistry.Get<Navigation::Api::ExecutionStateComponent>(entity);
 						if (!execution || execution->get().State == Navigation::Api::ExecutionState::Arrived ||
 							execution->get().State == Navigation::Api::ExecutionState::Unreachable ||
 							execution->get().State == Navigation::Api::ExecutionState::Cancelled)
@@ -119,28 +114,37 @@ namespace UnrealVoxelSim::Testbed
 					continue;
 
 				constexpr auto arrivalRadius = Math::Api::FixedPointScalar::OneRaw / 4;
-				commands.emplace_back(
-					Navigation::Api::Start{{context.Tick, AutonomousNavigationSource, ++m_CommandSequence},
-										   m_Entities[index],
-										   Navigation::Api::ExecutionId{++m_ExecutionSequence},
-										   {Destination(state), Math::Api::FixedPointScalar::FromRaw(arrivalRadius)}});
-				started.push_back(index);
+				if (m_Navigation.BeginNavigateToGoal(
+						entity, {Destination(state), Math::Api::FixedPointScalar::FromRaw(arrivalRadius)}))
+				{
+					state.ActiveExecution = true;
+					++started;
+				}
 			}
 		}
 
-		UNREALVOXELSIM_PROFILE_PLOT(m_Profiling, "Pawn population", m_Entities.size());
-		UNREALVOXELSIM_PROFILE_PLOT(m_Profiling, "Pawn navigation commands", commands.size());
-		if (commands.empty())
-			return;
-		if (m_NavigationCommands.Submit(commands))
-		{
-			m_PendingCancels.clear();
-			for (const auto index : started)
-				m_States[index].ActiveExecution = true;
-		}
+		UNREALVOXELSIM_PROFILE_PLOT(m_Profiling, "Pawn population", pawns.size());
+		UNREALVOXELSIM_PROFILE_PLOT(m_Profiling, "Pawn navigation starts", started);
 	}
 
-	std::span<const Ecs::Api::EntityId> PawnController::Entities() const noexcept { return m_Entities; }
+	std::vector<Ecs::Api::EntityId> PawnController::Entities() const { return ActivePawns(); }
+
+	std::vector<Ecs::Api::EntityId> PawnController::ActivePawns() const
+	{
+		std::vector<std::pair<Ecs::Api::EntityId, std::size_t>> ordered;
+		const auto& registry = static_cast<const Ecs::EnTT::Registry&>(m_EntitiesRegistry);
+		registry.ForEach(ActivePawnQuery{},
+		                [&ordered](const Ecs::Api::EntityId entity, const PawnComponent& pawn)
+		                { ordered.emplace_back(entity, pawn.Slot); });
+		std::sort(ordered.begin(), ordered.end(),
+		          [](const auto& left, const auto& right) { return left.second < right.second; });
+
+		std::vector<Ecs::Api::EntityId> result;
+		result.reserve(ordered.size());
+		for (const auto& item : ordered)
+			result.push_back(item.first);
+		return result;
+	}
 
 	std::size_t PawnController::TargetPopulation() const noexcept { return m_TargetPopulation; }
 
@@ -148,7 +152,7 @@ namespace UnrealVoxelSim::Testbed
 
 	bool PawnController::IsAutonomous() const noexcept { return m_Configuration.AutonomousNavigation; }
 
-	std::uint64_t PawnController::NextRandom(State& state) const noexcept
+	std::uint64_t PawnController::NextRandom(PawnStateComponent& state) const noexcept
 	{
 		auto value = state.RandomState;
 		value ^= value >> 12U;
@@ -158,7 +162,7 @@ namespace UnrealVoxelSim::Testbed
 		return value * 0x2545F4914F6CDD1DULL;
 	}
 
-	std::int32_t PawnController::RandomCoordinate(State& state,
+	std::int32_t PawnController::RandomCoordinate(PawnStateComponent& state,
 												  const std::int32_t minimum,
 												  const std::int32_t maximum) const noexcept
 	{
@@ -189,7 +193,7 @@ namespace UnrealVoxelSim::Testbed
 				Math::Api::FixedPointScalar::FromWhole(m_Configuration.SpawnZ)};
 	}
 
-	Spatial::Api::Position PawnController::Destination(State& state) const noexcept
+	Spatial::Api::Position PawnController::Destination(PawnStateComponent& state) const noexcept
 	{
 		const auto x =
 			RandomCoordinate(state, m_Configuration.DestinationBounds.Min.X, m_Configuration.DestinationBounds.Max.X);
@@ -210,16 +214,6 @@ namespace UnrealVoxelSim::Testbed
 	void PawnController::CreatePawn(const std::size_t index)
 	{
 		const auto entity = m_EntitiesRegistry.Create();
-		if (!m_EntitiesRegistry.Assign<Spatial::Api::PositionComponent>(entity, Spawn(index)) ||
-			!m_EntitiesRegistry.Assign<Spatial::Api::LinearVelocityComponent>(entity, Spatial::Api::LinearVelocity{}) ||
-			!m_EntitiesRegistry.Assign<Movement::Api::ProfileComponent>(entity, m_Configuration.Profile) ||
-			!m_EntitiesRegistry.Assign<Movement::Api::GroundedComponent>(entity, true) ||
-			!m_EntitiesRegistry.Assign<Movement::Api::InputComponent>(entity,
-																			  Movement::Api::InputComponent{}))
-		{
-			static_cast<void>(m_EntitiesRegistry.Destroy(entity));
-			throw std::runtime_error{"A navigation pawn could not be registered with movement."};
-		}
 		auto seed = m_Configuration.RandomSeed + static_cast<std::uint64_t>(index) * 0x9E3779B97F4A7C15ULL;
 		seed ^= seed >> 30U;
 		seed *= 0xBF58476D1CE4E5B9ULL;
@@ -228,18 +222,29 @@ namespace UnrealVoxelSim::Testbed
 		seed ^= seed >> 31U;
 		if (seed == 0)
 			seed = 1;
-		m_Entities.push_back(entity);
-		m_States.push_back({seed});
+		if (!m_EntitiesRegistry.Assign<PawnComponent>(entity, PawnComponent{index}) ||
+			!m_EntitiesRegistry.Assign<PawnStateComponent>(entity, PawnStateComponent{seed}) ||
+			!m_EntitiesRegistry.Assign<Spatial::Api::PositionComponent>(entity, Spawn(index)) ||
+			!m_EntitiesRegistry.Assign<Spatial::Api::LinearVelocityComponent>(entity, Spatial::Api::LinearVelocity{}) ||
+			!m_EntitiesRegistry.Assign<Movement::Api::ProfileComponent>(entity, m_Configuration.Profile) ||
+			!m_EntitiesRegistry.Assign<Movement::Api::GroundedComponent>(entity, true))
+		{
+			static_cast<void>(m_EntitiesRegistry.Destroy(entity));
+			throw std::runtime_error{"A navigation pawn could not be registered with movement."};
+		}
+		if (!m_MovementIntent.SetIntent(entity, {}, {}))
+		{
+			static_cast<void>(m_EntitiesRegistry.Destroy(entity));
+			throw std::runtime_error{"A navigation pawn could not receive neutral movement intent."};
+		}
 	}
 
-	void PawnController::RemovePawn()
+	void PawnController::RemovePawn(const Ecs::Api::EntityId entity)
 	{
-		const auto entity = m_Entities.back();
-		if (const auto execution = m_EntitiesRegistry.Get<Navigation::Api::ExecutionStateComponent>(entity))
-			m_PendingCancels.push_back({entity, execution->get().Execution});
+		if (!m_EntitiesRegistry.IsAlive(entity) || !m_EntitiesRegistry.Contains<PawnComponent>(entity))
+			throw std::logic_error{"Pawn population state became inconsistent."};
+		m_Navigation.CancelNavigateToGoal(entity);
 		if (!m_EntitiesRegistry.Destroy(entity))
 			throw std::logic_error{"Pawn population state became inconsistent."};
-		m_Entities.pop_back();
-		m_States.pop_back();
 	}
 } // namespace UnrealVoxelSim::Testbed

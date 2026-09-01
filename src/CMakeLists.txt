@@ -7,8 +7,7 @@ add_library(
 
 target_include_directories(
     UnrealVoxelSim.Testbed.Worlds
-    PUBLIC
-        "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src>"
+    PUBLIC "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src>"
 )
 
 target_link_libraries(
@@ -22,17 +21,8 @@ target_link_libraries(
         UnrealVoxelSim.Voxel.Api
         UnrealVoxelSim.Voxel.Solid.Api
     PRIVATE
-        UnrealVoxelSim.Events.InMemory
+        UnrealVoxelSim.Composition.Game
         UnrealVoxelSim.Ecs.EnTT
-        UnrealVoxelSim.Movement.Voxel
-        UnrealVoxelSim.Navigation.Following
-        UnrealVoxelSim.Navigation.Voxel
-        UnrealVoxelSim.Simulation.FixedStep
-        UnrealVoxelSim.Simulation.Pipeline
-        UnrealVoxelSim.Voxel.Chunked
-        UnrealVoxelSim.Voxel.Solid
-        UnrealVoxelSim.Voxel.Solid.Commands
-        UnrealVoxelSim.Voxel.Solid.Navigation
 )
 
 if(UNREALVOXELSIM_ENABLE_PROFILING)

@@ -4,22 +4,22 @@
 #include "UnrealVoxelSim/Ecs/EnTT/Registry.h"
 #include "UnrealVoxelSim/Movement/Api/ProfileComponent.h"
 #include "UnrealVoxelSim/Movement/Api/ProfileId.h"
-#include "UnrealVoxelSim/Navigation/Api/ExecutionId.h"
-#include "UnrealVoxelSim/Navigation/Api/ICommandSink.h"
+#include "UnrealVoxelSim/Movement/Api/IIntentReceiver.h"
+#include "UnrealVoxelSim/Navigation/Api/INavigation.h"
 #include "UnrealVoxelSim/Profiling/Api/IRecorder.h"
-#include "UnrealVoxelSim/Simulation/Api/IDecisionUpdater.h"
+#include "UnrealVoxelSim/Simulation/Api/IStepParticipant.h"
 #include "UnrealVoxelSim/Simulation/Api/TickCount.h"
 #include "UnrealVoxelSim/Spatial/Api/Position.h"
 #include "UnrealVoxelSim/Voxel/Api/Region.h"
 
 #include <cstddef>
 #include <cstdint>
-#include <span>
+#include <utility>
 #include <vector>
 
 namespace UnrealVoxelSim::Testbed
 {
-	class PawnController final : public Simulation::Api::IDecisionUpdater
+	class PawnController final : public Simulation::Api::IStepParticipant
 	{
 	public:
 		struct Configuration final
@@ -37,21 +37,27 @@ namespace UnrealVoxelSim::Testbed
 		};
 
 		PawnController(Ecs::EnTT::Registry& entities,
-					   Navigation::Api::ICommandSink& navigationCommands,
+					   Navigation::Api::INavigation& navigation,
+					   Movement::Api::IIntentReceiver& movementIntent,
 					   Profiling::Api::IRecorder& profiling,
 					   Configuration configuration);
 
 		void SetTargetPopulation(std::size_t population);
 		void TrackExternalNavigation(Ecs::Api::EntityId entity) noexcept;
-		void UpdateDecisions(Simulation::Api::StepContext context) override;
+		void Step(Simulation::Api::StepContext context) override;
 
-		[[nodiscard]] std::span<const Ecs::Api::EntityId> Entities() const noexcept;
+		[[nodiscard]] std::vector<Ecs::Api::EntityId> Entities() const;
 		[[nodiscard]] std::size_t TargetPopulation() const noexcept;
 		[[nodiscard]] std::size_t MaximumPopulation() const noexcept;
 		[[nodiscard]] bool IsAutonomous() const noexcept;
 
 	private:
-		struct State final
+		struct PawnComponent final
+		{
+			std::size_t Slot{};
+		};
+
+		struct PawnStateComponent final
 		{
 			std::uint64_t RandomState{};
 			std::uint64_t RetryTick{};
@@ -59,34 +65,24 @@ namespace UnrealVoxelSim::Testbed
 			bool ExternalCommandPending{};
 		};
 
-		struct PendingCancel final
-		{
-			Ecs::Api::EntityId Entity;
-			Navigation::Api::ExecutionId Execution;
-		};
+		using ActivePawnQuery = Ecs::Api::Query<Ecs::Api::Read<PawnComponent>>;
 
-		[[nodiscard]] std::uint64_t NextRandom(State& state) const noexcept;
+		[[nodiscard]] std::vector<Ecs::Api::EntityId> ActivePawns() const;
+		[[nodiscard]] std::uint64_t NextRandom(PawnStateComponent& state) const noexcept;
 		[[nodiscard]] std::int32_t
-		RandomCoordinate(State& state, std::int32_t minimum, std::int32_t maximum) const noexcept;
+		RandomCoordinate(PawnStateComponent& state, std::int32_t minimum, std::int32_t maximum) const noexcept;
 		[[nodiscard]] Spatial::Api::Position Spawn(std::size_t index) const noexcept;
-		[[nodiscard]] Spatial::Api::Position Destination(State& state) const noexcept;
+		[[nodiscard]] Spatial::Api::Position Destination(PawnStateComponent& state) const noexcept;
 		void CreatePawn(std::size_t index);
-		void RemovePawn();
+		void RemovePawn(Ecs::Api::EntityId entity);
 
 		Ecs::EnTT::Registry& m_EntitiesRegistry;
-		Navigation::Api::ICommandSink& m_NavigationCommands;
+		Navigation::Api::INavigation& m_Navigation;
+		Movement::Api::IIntentReceiver& m_MovementIntent;
 		Profiling::Api::IRecorder& m_Profiling;
 		Configuration m_Configuration;
 
-		// TODO Use ECS components
-		std::vector<Ecs::Api::EntityId> m_Entities;
-
-		// TODO States and Cancels should be stored in ECS as components.
-		std::vector<State> m_States;
-		std::vector<PendingCancel> m_PendingCancels;
 		std::size_t m_TargetPopulation{};
 		std::size_t m_MaximumPopulation{};
-		std::uint64_t m_CommandSequence{};
-		std::uint64_t m_ExecutionSequence{};
 	};
 } // namespace UnrealVoxelSim::Testbed
