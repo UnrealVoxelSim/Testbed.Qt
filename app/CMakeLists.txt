@@ -10,6 +10,15 @@ qt_add_executable(
     UnrealVoxelSim/Testbed/Qt/main.cpp
 )
 
+add_custom_command(
+    TARGET ${PROJECT_NAME}.App
+    POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/voxel"
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}.App>/textures"
+    VERBATIM
+)
+
 target_link_libraries(
     ${PROJECT_NAME}.App
     PRIVATE

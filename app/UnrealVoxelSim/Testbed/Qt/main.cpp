@@ -63,6 +63,9 @@ int main(int argc, char *argv[])
 
         if (commandLine.isSet(smokeTestOption))
         {
+            QTimer::singleShot(1000, &application, [&application, &window] {
+                if (!window.TextureResourcesReady()) application.exit(4);
+            });
             if (worldName == "stress")
             {
                 QTimer::singleShot(250, &application,

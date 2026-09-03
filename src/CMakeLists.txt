@@ -2,6 +2,8 @@ add_library(
     UnrealVoxelSim.Testbed.Worlds
     UnrealVoxelSim/Testbed/PawnController.cpp
     UnrealVoxelSim/Testbed/PawnController.h
+    UnrealVoxelSim/Testbed/VoxelMaterials.cpp
+    UnrealVoxelSim/Testbed/VoxelMaterials.h
     UnrealVoxelSim/Testbed/World.cpp
 )
 
@@ -19,6 +21,7 @@ target_link_libraries(
         UnrealVoxelSim.Profiling.Api
         UnrealVoxelSim.Simulation.Api
         UnrealVoxelSim.Voxel.Api
+        UnrealVoxelSim.Voxel.Rendering.Api
         UnrealVoxelSim.Voxel.Solid.Api
     PRIVATE
         UnrealVoxelSim.Composition.Game

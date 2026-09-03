@@ -1,6 +1,7 @@
 #include "World.h"
 
 #include "PawnController.h"
+#include "VoxelMaterials.h"
 
 #include "UnrealVoxelSim/Composition/Game.h"
 #include "UnrealVoxelSim/Ecs/EnTT/Registry.h"
@@ -143,10 +144,13 @@ namespace UnrealVoxelSim::Testbed
 		}
 		m_Descriptor = configuration->Descriptor;
 
-		constexpr std::array materials{
-			Voxel::Solid::Api::MaterialTraversal{Voxel::Solid::Api::StandardMaterials::Dirt},
-			Voxel::Solid::Api::MaterialTraversal{Voxel::Solid::Api::StandardMaterials::Grass},
-			Voxel::Solid::Api::MaterialTraversal{Voxel::Solid::Api::StandardMaterials::Stone}};
+		const auto materialDefinitions = VoxelMaterialDefinitions();
+		std::vector<Voxel::Solid::Api::MaterialTraversal> materials;
+		materials.reserve(materialDefinitions.size());
+		for (const auto& definition : materialDefinitions)
+		{
+			materials.push_back(definition.Traversal);
+		}
 		const std::array profiles{Movement::Api::GroundedProfile{Movement::Api::ProfileId{1}}};
 		const std::array navigationPreparation{configuration->InitialNavigationRegion};
 		m_Game = std::make_unique<Composition::Game>(

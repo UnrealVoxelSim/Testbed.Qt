@@ -26,7 +26,7 @@ supports up to 36,864 simultaneous pawns in the configured spawn lattice.
 - Hold the left mouse button to apply the selected Fill or Erase tool.
 - Fill targets the empty cell adjacent to the selected face; Erase targets the hit solid cell.
 - Select Navigate and left-click a visible voxel face to start navigation toward the adjacent empty cell.
-- Select Dirt, Grass, or Stone independently from brush mode and size.
+- Select Dirt, Grass, Stone, Trunk, or Plank independently from brush mode and size.
 - Set the camera-relative rendering distance from the toolbar in world cells.
 
 Each stress-world pawn uses a reproducibly seeded random sequence: half of its goals select a voxel on the ground surface
@@ -60,6 +60,10 @@ not dominated by per-pawn rendering submissions. The testbed requests an uncappe
 schedules frames so the counter reflects the presenter's practical throughput; the window compositor or graphics
 driver may still impose a platform cap. Rendering meshes are reconstructible derived state and are never persisted or
 treated as simulation authority.
+
+Voxel faces use renderer-neutral surface and texture keys. The Qt presenter resolves those keys to PNG resources deployed
+beside the executable in an OpenGL texture array; the voxel sampler and greedy mesher do not depend on Qt, PNG, or
+OpenGL.
 
 Windows builds disable shared-library generation, use vcpkg's `x64-windows-static` triplet, and select the static MSVC
 runtime. Qt and its Windows platform plugin are linked into the executable; running the testbed does not require adjacent

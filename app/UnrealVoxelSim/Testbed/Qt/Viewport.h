@@ -54,6 +54,7 @@ class Viewport final : public QOpenGLWidget, protected QOpenGLFunctions_3_3_Core
     void SetBrushSize(int size) noexcept;
     void SetMaterial(UnrealVoxelSim::Voxel::Solid::Api::MaterialId material) noexcept;
     void SetRenderDistance(int distance) noexcept;
+    [[nodiscard]] bool TextureResourcesReady() const noexcept;
     void SetDiagnosticsSink(std::function<void(const QString &)> sink);
     void SetSimulationBacklog(UnrealVoxelSim::Simulation::Api::TickCount pending) noexcept;
     void ReportStatus(QString status);
@@ -125,6 +126,8 @@ class Viewport final : public QOpenGLWidget, protected QOpenGLFunctions_3_3_Core
         float NormalY{};
         float NormalZ{};
         std::uint32_t Surface{};
+        float U{};
+        float V{};
     };
 
     struct GpuOffset final
@@ -153,6 +156,8 @@ class Viewport final : public QOpenGLWidget, protected QOpenGLFunctions_3_3_Core
     void ScheduleJobs();
     void Upload(Tile &tile, const UnrealVoxelSim::Voxel::Rendering::Api::Mesh &mesh);
     void DestroyGpu(Tile &tile) noexcept;
+    void CreateTextureResources();
+    void DestroyTextureResources() noexcept;
     void ApplyBrush(const QPoint &screenPosition);
     void SelectPawn(const QPoint &screenPosition);
     void SubmitNavigation(const QPoint &screenPosition);
@@ -169,6 +174,9 @@ class Viewport final : public QOpenGLWidget, protected QOpenGLFunctions_3_3_Core
     std::vector<Job> m_Jobs;
     Tile m_PawnGpu;
     unsigned int m_PawnInstanceBuffer{};
+    unsigned int m_TileTextures{};
+    unsigned int m_SurfaceTableTexture{};
+    unsigned int m_SurfaceTableBuffer{};
     std::optional<TileKey> m_ResidencyCenter;
     std::int32_t m_ResidencyRadius{};
     std::unordered_set<int> m_Keys;

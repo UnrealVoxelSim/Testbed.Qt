@@ -1,9 +1,14 @@
 #include "Viewport.h"
 
 #include "UnrealVoxelSim/Profiling/Api/Macros.h"
+#include "UnrealVoxelSim/Testbed/VoxelMaterials.h"
 #include "UnrealVoxelSim/Voxel/Solid/Api/Changed.h"
 #include "UnrealVoxelSim/Voxel/Solid/Rendering/GreedyMesher.h"
 
+#include <QCoreApplication>
+#include <QDebug>
+#include <QImage>
+#include <QFile>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QOpenGLShader>
@@ -16,6 +21,7 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <string_view>
 #include <thread>
 #include <utility>
 
@@ -30,19 +36,22 @@ constexpr auto VertexShader = R"(
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 vertexNormal;
 layout(location = 2) in uint surface;
-layout(location = 3) in vec3 instanceOffset;
+layout(location = 3) in vec2 vertexTextureCoordinate;
+layout(location = 4) in vec3 instanceOffset;
 
 uniform mat4 viewProjection;
 uniform vec3 modelOffset;
 
 out vec3 normal;
 flat out uint surfaceId;
+out vec2 textureCoordinate;
 
 void main()
 {
     gl_Position = viewProjection * vec4(position + modelOffset + instanceOffset, 1.0);
     normal = vertexNormal;
     surfaceId = surface;
+    textureCoordinate = vertexTextureCoordinate;
 }
 )";
 
@@ -50,24 +59,33 @@ constexpr auto FragmentShader = R"(
 #version 330 core
 in vec3 normal;
 flat in uint surfaceId;
+in vec2 textureCoordinate;
 out vec4 color;
 uniform bool highlighted;
+uniform bool textured;
+uniform vec3 solidColor;
+uniform sampler2DArray tileTextures;
+uniform usamplerBuffer surfaceTable;
 
-vec3 surfaceColor(uint id)
+uint faceIndex(vec3 faceNormal)
 {
-    if (id == 1u) return vec3(0.42, 0.25, 0.10);
-    if (id == 2u) return vec3(0.18, 0.62, 0.20);
-    if (id == 3u) return vec3(0.48, 0.50, 0.54);
-    if (id == 4u) return vec3(0.95, 0.72, 0.08);
-    return vec3(0.85, 0.15, 0.75);
+    if (abs(faceNormal.x) > 0.5) return faceNormal.x < 0.0 ? 0u : 1u;
+    if (abs(faceNormal.y) > 0.5) return faceNormal.y < 0.0 ? 2u : 3u;
+    return faceNormal.z < 0.0 ? 4u : 5u;
 }
 
 void main()
 {
     vec3 lightDirection = normalize(vec3(0.45, -0.35, 0.82));
     float illumination = 0.32 + 0.68 * max(dot(normalize(normal), lightDirection), 0.0);
-    vec3 baseColor = highlighted ? vec3(0.10, 0.95, 1.0) : surfaceColor(surfaceId);
-    color = vec4(baseColor * illumination, 1.0);
+    vec4 surface = vec4(solidColor, 1.0);
+    if (textured)
+    {
+        uint layer = texelFetch(surfaceTable, int(surfaceId * 6u + faceIndex(normalize(normal)))).r;
+        surface = texture(tileTextures, vec3(fract(textureCoordinate), float(layer)));
+    }
+    vec3 baseColor = highlighted ? vec3(0.10, 0.95, 1.0) : surface.rgb;
+    color = vec4(baseColor * illumination, surface.a);
 }
 )";
 
@@ -76,7 +94,7 @@ void main()
 Viewport::Viewport(UnrealVoxelSim::Testbed::World &world,
                    UnrealVoxelSim::Profiling::Api::IRecorder &profiling, QWidget *parent)
     : QOpenGLWidget(parent), m_World(world), m_Profiling(profiling),
-      m_Sampler(world.Bounds(), world.SolidRegions())
+      m_Sampler(world.Bounds(), world.SolidRegions(), VoxelMaterialSurfaceBindings())
 {
     setFocusPolicy(::Qt::StrongFocus);
     setMouseTracking(true);
@@ -107,7 +125,11 @@ Viewport::~Viewport()
             DestroyGpu(tile);
         }
         DestroyGpu(m_PawnGpu);
-        if (m_PawnInstanceBuffer != 0) glDeleteBuffers(1, &m_PawnInstanceBuffer);
+        DestroyTextureResources();
+        if (m_PawnInstanceBuffer != 0)
+        {
+            glDeleteBuffers(1, &m_PawnInstanceBuffer);
+        }
         m_Program.reset();
         doneCurrent();
     }
@@ -136,6 +158,11 @@ void Viewport::SetMaterial(const UnrealVoxelSim::Voxel::Solid::Api::MaterialId m
 void Viewport::SetRenderDistance(const int distance) noexcept
 {
     m_RenderDistance = std::clamp(distance, MinimumRenderDistance, MaximumRenderDistance);
+}
+
+bool Viewport::TextureResourcesReady() const noexcept
+{
+    return m_TileTextures != 0 && m_SurfaceTableTexture != 0;
 }
 
 void Viewport::SetDiagnosticsSink(std::function<void(const QString &)> sink)
@@ -173,17 +200,29 @@ void Viewport::Tick()
     }
     QVector3D movement;
     if (m_Keys.contains(::Qt::Key_W))
+    {
         movement += forward;
+    }
     if (m_Keys.contains(::Qt::Key_S))
+    {
         movement -= forward;
+    }
     if (m_Keys.contains(::Qt::Key_D))
+    {
         movement += right;
+    }
     if (m_Keys.contains(::Qt::Key_A))
+    {
         movement -= right;
+    }
     if (m_Keys.contains(::Qt::Key_E))
+    {
         movement += QVector3D{0.0F, 0.0F, 1.0F};
+    }
     if (m_Keys.contains(::Qt::Key_Q))
+    {
         movement -= QVector3D{0.0F, 0.0F, 1.0F};
+    }
     if (!movement.isNull())
     {
         m_Camera += movement.normalized() * speed * elapsed;
@@ -207,6 +246,7 @@ void Viewport::initializeGL()
     }
     else
     {
+        CreateTextureResources();
         CreatePawnGpu();
     }
 }
@@ -239,6 +279,18 @@ void Viewport::paintGL()
     m_Program->setUniformValue("viewProjection", viewProjection);
     m_Program->setUniformValue("modelOffset", QVector3D{});
     m_Program->setUniformValue("highlighted", false);
+    const auto hasTextureResources = m_TileTextures != 0 && m_SurfaceTableTexture != 0;
+    m_Program->setUniformValue("textured", hasTextureResources);
+    m_Program->setUniformValue("solidColor", QVector3D{0.85F, 0.15F, 0.75F});
+    if (hasTextureResources)
+    {
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, m_TileTextures);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_BUFFER, m_SurfaceTableTexture);
+        m_Program->setUniformValue("tileTextures", 0);
+        m_Program->setUniformValue("surfaceTable", 1);
+    }
     std::size_t visibleTiles{};
     std::size_t drawCalls{};
     std::size_t triangles{};
@@ -266,26 +318,40 @@ void Viewport::paintGL()
         for (const auto entity : m_World.Pawns())
         {
             const auto pawn = m_World.ReadPawn(entity);
-            if (!pawn) continue;
+            if (!pawn)
+            {
+                continue;
+            }
             const auto x = pawn->Location.X.ToDouble();
             const auto y = pawn->Location.Y.ToDouble();
             const auto z = pawn->Location.Z.ToDouble();
             const auto dx = x - m_Camera.x();
             const auto dy = y - m_Camera.y();
             const auto dz = z - m_Camera.z();
-            if (dx * dx + dy * dy + dz * dz > maximumPawnDistanceSquared) continue;
+            if (dx * dx + dy * dy + dz * dz > maximumPawnDistanceSquared)
+            {
+                continue;
+            }
             const auto clip = viewProjection * QVector4D{static_cast<float>(x), static_cast<float>(y),
                                                          static_cast<float>(z + 0.9), 1.0F};
             if (clip.w() <= 0.0F || clip.x() < -clip.w() || clip.x() > clip.w() || clip.y() < -clip.w() ||
                 clip.y() > clip.w() || clip.z() < -clip.w() || clip.z() > clip.w())
+            {
                 continue;
+            }
             const GpuOffset offset{static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)};
             if (m_SelectedPawn == entity)
+            {
                 selectedPawnOffset = offset;
+            }
             else
+            {
                 pawnOffsets.push_back(offset);
+            }
         }
     }
+    m_Program->setUniformValue("textured", false);
+    m_Program->setUniformValue("solidColor", QVector3D{0.95F, 0.72F, 0.08F});
     if (!pawnOffsets.empty() && m_PawnGpu.IndexCount != 0)
     {
         glBindVertexArray(m_PawnGpu.VertexArray);
@@ -310,6 +376,7 @@ void Viewport::paintGL()
         triangles += static_cast<std::size_t>(m_PawnGpu.IndexCount) / 3;
     }
     glBindVertexArray(0);
+    glActiveTexture(GL_TEXTURE0);
     m_Program->release();
     UNREALVOXELSIM_PROFILE_PLOT(m_Profiling, "Resident terrain tiles", m_Tiles.size());
     UNREALVOXELSIM_PROFILE_PLOT(m_Profiling, "Dirty terrain tiles", m_Dirty.size());
@@ -617,6 +684,139 @@ void Viewport::ScheduleJobs()
     }
 }
 
+void Viewport::CreateTextureResources()
+{
+    const auto definitions = VoxelMaterialDefinitions();
+    std::vector<std::string_view> textureKeys;
+    for (const auto &definition : definitions)
+    {
+        for (const auto texture : definition.Appearance.Textures)
+        {
+            if (!texture.IsValid())
+            {
+                m_Status = "Voxel surface appearance contains an empty texture key";
+                return;
+            }
+            if (std::ranges::find(textureKeys, texture.Value()) == textureKeys.end())
+            {
+                textureKeys.push_back(texture.Value());
+            }
+        }
+    }
+
+    std::vector<QImage> images;
+    images.reserve(textureKeys.size());
+    int width{};
+    int height{};
+    for (std::size_t index = 0; index < textureKeys.size(); ++index)
+    {
+        const auto path = QCoreApplication::applicationDirPath() + QStringLiteral("/textures/") +
+                          QString::fromUtf8(textureKeys[index].data(),
+                                            static_cast<qsizetype>(textureKeys[index].size())) +
+                          QStringLiteral(".png");
+        QFile file{path};
+        if (!file.open(QIODevice::ReadOnly))
+        {
+            m_Status = QString{"Texture file could not be opened: %1 (%2)"}.arg(path, file.errorString());
+            qWarning().noquote() << m_Status;
+            return;
+        }
+        const auto encodedImage = file.readAll();
+        auto image = QImage::fromData(encodedImage, "PNG")
+                         .convertToFormat(QImage::Format_RGBA8888)
+                         .flipped(::Qt::Vertical);
+        if (image.isNull())
+        {
+            m_Status = QString{"Texture file could not be decoded: %1 (bytes=%2)"}
+                           .arg(path)
+                           .arg(encodedImage.size());
+            qWarning().noquote() << m_Status;
+            return;
+        }
+        images.push_back(std::move(image));
+        if (index == 0)
+        {
+            width = images.back().width();
+            height = images.back().height();
+        }
+        else if (images.back().width() != width || images.back().height() != height)
+        {
+            m_Status = "Voxel texture resources must have identical dimensions";
+            return;
+        }
+    }
+
+    std::uint32_t maximumSurface{};
+    for (const auto &definition : definitions)
+    {
+        maximumSurface = std::max(maximumSurface, definition.Surface.Value());
+    }
+    constexpr auto faceCount = std::size_t{6};
+    if (maximumSurface > (std::numeric_limits<std::uint32_t>::max() / faceCount) - 1U)
+    {
+        m_Status = "Voxel surface table is too large";
+        return;
+    }
+
+    const auto tableSize = (static_cast<std::size_t>(maximumSurface) + 1U) * faceCount;
+    std::vector<std::uint32_t> surfaceLayers(tableSize);
+    for (const auto &definition : definitions)
+    {
+        const auto surfaceOffset = static_cast<std::size_t>(definition.Surface.Value()) * faceCount;
+        for (std::size_t face = 0; face < faceCount; ++face)
+        {
+            const auto iterator = std::ranges::find(textureKeys, definition.Appearance.Textures[face].Value());
+            surfaceLayers[surfaceOffset + face] = static_cast<std::uint32_t>(
+                std::distance(textureKeys.begin(), iterator));
+        }
+    }
+
+    glGenTextures(1, &m_TileTextures);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, m_TileTextures);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8, width, height,
+                 static_cast<GLsizei>(images.size()), 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    for (std::size_t index = 0; index < images.size(); ++index)
+    {
+        glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, static_cast<GLint>(index), width, height, 1, GL_RGBA,
+                        GL_UNSIGNED_BYTE, images[index].constBits());
+    }
+
+    glGenBuffers(1, &m_SurfaceTableBuffer);
+    glBindBuffer(GL_TEXTURE_BUFFER, m_SurfaceTableBuffer);
+    glBufferData(GL_TEXTURE_BUFFER, static_cast<GLsizeiptr>(surfaceLayers.size() * sizeof(std::uint32_t)),
+                 surfaceLayers.data(), GL_STATIC_DRAW);
+    glGenTextures(1, &m_SurfaceTableTexture);
+    glBindTexture(GL_TEXTURE_BUFFER, m_SurfaceTableTexture);
+    glTexBuffer(GL_TEXTURE_BUFFER, GL_R32UI, m_SurfaceTableBuffer);
+    glBindTexture(GL_TEXTURE_BUFFER, 0);
+    glBindBuffer(GL_TEXTURE_BUFFER, 0);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+}
+
+void Viewport::DestroyTextureResources() noexcept
+{
+    if (m_SurfaceTableTexture != 0)
+    {
+        glDeleteTextures(1, &m_SurfaceTableTexture);
+    }
+    if (m_SurfaceTableBuffer != 0)
+    {
+        glDeleteBuffers(1, &m_SurfaceTableBuffer);
+    }
+    if (m_TileTextures != 0)
+    {
+        glDeleteTextures(1, &m_TileTextures);
+    }
+    m_SurfaceTableTexture = 0;
+    m_SurfaceTableBuffer = 0;
+    m_TileTextures = 0;
+}
+
 void Viewport::Upload(Tile &tile, const UnrealVoxelSim::Voxel::Rendering::Api::Mesh &mesh)
 {
     DestroyGpu(tile);
@@ -632,7 +832,8 @@ void Viewport::Upload(Tile &tile, const UnrealVoxelSim::Voxel::Rendering::Api::M
         vertices.push_back(
             {static_cast<float>(mesh.Bounds.Min.X + vertex.X), static_cast<float>(mesh.Bounds.Min.Y + vertex.Y),
              static_cast<float>(mesh.Bounds.Min.Z + vertex.Z), static_cast<float>(vertex.NormalX),
-             static_cast<float>(vertex.NormalY), static_cast<float>(vertex.NormalZ), vertex.Surface.Value()});
+             static_cast<float>(vertex.NormalY), static_cast<float>(vertex.NormalZ), vertex.Surface.Value(), vertex.U,
+             vertex.V});
     }
 
     glGenVertexArrays(1, &tile.VertexArray);
@@ -654,6 +855,9 @@ void Viewport::Upload(Tile &tile, const UnrealVoxelSim::Voxel::Rendering::Api::M
     glEnableVertexAttribArray(2);
     glVertexAttribIPointer(2, 1, GL_UNSIGNED_INT, sizeof(GpuVertex),
                            reinterpret_cast<void *>(offsetof(GpuVertex, Surface)));
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, sizeof(GpuVertex),
+                          reinterpret_cast<void *>(offsetof(GpuVertex, U)));
     glBindVertexArray(0);
     tile.IndexCount = static_cast<int>(mesh.Indices.size());
 }
@@ -661,11 +865,17 @@ void Viewport::Upload(Tile &tile, const UnrealVoxelSim::Voxel::Rendering::Api::M
 void Viewport::DestroyGpu(Tile &tile) noexcept
 {
     if (tile.IndexBuffer != 0)
+    {
         glDeleteBuffers(1, &tile.IndexBuffer);
+    }
     if (tile.VertexBuffer != 0)
+    {
         glDeleteBuffers(1, &tile.VertexBuffer);
+    }
     if (tile.VertexArray != 0)
+    {
         glDeleteVertexArrays(1, &tile.VertexArray);
+    }
     tile.IndexBuffer = 0;
     tile.VertexBuffer = 0;
     tile.VertexArray = 0;
@@ -693,7 +903,10 @@ std::optional<Viewport::Ray> Viewport::ScreenRay(const QPoint &screenPosition) c
 std::optional<Viewport::Hit> Viewport::Raycast(const QPoint &screenPosition) const
 {
     const auto ray = ScreenRay(screenPosition);
-    if (!ray) return std::nullopt;
+    if (!ray)
+    {
+        return std::nullopt;
+    }
     const auto &origin = ray->Origin;
     const auto &direction = ray->Direction;
 
@@ -735,11 +948,17 @@ std::optional<Viewport::Hit> Viewport::Raycast(const QPoint &screenPosition) con
         maximum[axis] += delta[axis];
         normal = {};
         if (axis == 0)
+        {
             normal.X = -step[axis];
+        }
         if (axis == 1)
+        {
             normal.Y = -step[axis];
+        }
         if (axis == 2)
+        {
             normal.Z = -step[axis];
+        }
     }
     return std::nullopt;
 }
@@ -812,15 +1031,24 @@ void Viewport::SelectPawn(const QPoint &screenPosition)
     for (const auto entity : m_World.Pawns())
     {
         const auto state = m_World.ReadPawn(entity);
-        if (!state) continue;
+        if (!state)
+        {
+            continue;
+        }
         const QVector3D center{static_cast<float>(state->Location.X.ToDouble()),
                                static_cast<float>(state->Location.Y.ToDouble()),
                                static_cast<float>(state->Location.Z.ToDouble() + 0.9)};
         const auto offset = center - ray->Origin;
         const auto distance = QVector3D::dotProduct(offset, ray->Direction);
-        if (distance < 0.0F || distance > 256.0F || distance >= nearest) continue;
+        if (distance < 0.0F || distance > 256.0F || distance >= nearest)
+        {
+            continue;
+        }
         const auto closest = ray->Origin + ray->Direction * distance;
-        if ((center - closest).lengthSquared() > 0.9F * 0.9F) continue;
+        if ((center - closest).lengthSquared() > 0.9F * 0.9F)
+        {
+            continue;
+        }
         nearest = distance;
         selected = entity;
     }
@@ -884,9 +1112,10 @@ void Viewport::CreatePawnGpu()
                            reinterpret_cast<void *>(offsetof(GpuVertex, Surface)));
     glGenBuffers(1, &m_PawnInstanceBuffer);
     glBindBuffer(GL_ARRAY_BUFFER, m_PawnInstanceBuffer);
-    glEnableVertexAttribArray(3);
-    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(GpuOffset), nullptr);
-    glVertexAttribDivisor(3, 1);
+    glDisableVertexAttribArray(3);
+    glEnableVertexAttribArray(4);
+    glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, sizeof(GpuOffset), nullptr);
+    glVertexAttribDivisor(4, 1);
     glBindVertexArray(0);
     m_PawnGpu.IndexCount = static_cast<int>(indices.size());
 }

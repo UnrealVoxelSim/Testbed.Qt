@@ -22,6 +22,7 @@ class Window final : public QMainWindow
            QWidget *parent = nullptr);
 
     [[nodiscard]] UnrealVoxelSim::Testbed::World &CurrentWorld() noexcept;
+    [[nodiscard]] bool TextureResourcesReady() const noexcept;
 
   private:
     void LoadWorld(std::string_view id);

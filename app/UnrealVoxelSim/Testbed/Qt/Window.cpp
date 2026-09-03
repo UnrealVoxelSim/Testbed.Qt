@@ -4,7 +4,7 @@
 #include "Viewport.h"
 
 #include "UnrealVoxelSim/Profiling/Api/Macros.h"
-#include "UnrealVoxelSim/Voxel/Solid/Api/StandardMaterials.h"
+#include "UnrealVoxelSim/Testbed/VoxelMaterials.h"
 
 #include <QAction>
 #include <QActionGroup>
@@ -65,22 +65,34 @@ Window::Window(const std::string_view initialWorld, Profiling::Api::IRecorder &p
     fileMenu->addAction("E&xit", this, &QWidget::close);
 
     LoadWorld(initialWorld);
-    if (!m_World) throw std::runtime_error{"The initial testbed world could not be created."};
+    if (!m_World)
+    {
+        throw std::runtime_error{"The initial testbed world could not be created."};
+    }
 
     auto *timer = new QTimer(this);
     timer->setTimerType(::Qt::PreciseTimer);
     connect(timer, &QTimer::timeout, this, [this] {
-        if (!m_World || !m_Viewport) return;
+        if (!m_World || !m_Viewport)
+        {
+            return;
+        }
         UNREALVOXELSIM_PROFILE_ZONE(m_Profiling, "Qt update callback");
         const auto elapsed = std::chrono::nanoseconds{m_SimulationClock.nsecsElapsed()};
         m_SimulationClock.restart();
         const auto result = m_World->Pacer().Advance(elapsed, MaximumTicksPerUiCallback);
         if (!result)
+        {
             m_Viewport->ReportStatus("Simulation pacing failed");
+        }
         else
+        {
             m_Viewport->SetSimulationBacklog(result->Pending);
+        }
         if (result)
+        {
             UNREALVOXELSIM_PROFILE_PLOT(m_Profiling, "Simulation backlog", result->Pending.Value());
+        }
         m_Viewport->Tick();
     });
     m_SimulationClock.start();
@@ -92,11 +104,22 @@ World &Window::CurrentWorld() noexcept
     return *m_World;
 }
 
+bool Window::TextureResourcesReady() const noexcept
+{
+    return m_Viewport != nullptr && m_Viewport->TextureResourcesReady();
+}
+
 void Window::LoadWorld(const std::string_view id)
 {
-    if (m_World && m_World->Descriptor().Id == id) return;
+    if (m_World && m_World->Descriptor().Id == id)
+    {
+        return;
+    }
 
-    if (auto *oldCentral = takeCentralWidget()) delete oldCentral;
+    if (auto *oldCentral = takeCentralWidget())
+    {
+        delete oldCentral;
+    }
     if (m_RuntimeStatus)
     {
         statusBar()->removeWidget(m_RuntimeStatus);
@@ -117,7 +140,10 @@ void Window::LoadWorld(const std::string_view id)
     }
 
     auto *worldMenu = menuBar()->actions().front()->menu()->actions().front()->menu();
-    for (auto *action : worldMenu->actions()) action->setChecked(action->data().toString().toStdString() == id);
+    for (auto *action : worldMenu->actions())
+    {
+        action->setChecked(action->data().toString().toStdString() == id);
+    }
     setWindowTitle(QString{"UnrealVoxelSim Qt Testbed - %1"}.arg(
         QString::fromUtf8(m_World->Descriptor().DisplayName.data(),
                           static_cast<qsizetype>(m_World->Descriptor().DisplayName.size()))));
@@ -144,9 +170,12 @@ void Window::BuildWorldUi()
     tool->addItem("Navigate", static_cast<int>(Tool::Navigate));
     simulationRate->addItems({"Paused", "0.5x", "1x", "2x", "10x", "100x"});
     simulationRate->setCurrentIndex(2);
-    material->addItem("Dirt", Voxel::Solid::Api::StandardMaterials::Dirt.Value());
-    material->addItem("Grass", Voxel::Solid::Api::StandardMaterials::Grass.Value());
-    material->addItem("Stone", Voxel::Solid::Api::StandardMaterials::Stone.Value());
+    for (const auto &definition : VoxelMaterialDefinitions())
+    {
+        material->addItem(QString::fromUtf8(definition.DisplayName.data(),
+                                            static_cast<qsizetype>(definition.DisplayName.size())),
+                          definition.Material.Value());
+    }
     size->setRange(1, 9);
     size->setValue(1);
     size->setSuffix(" cells");
@@ -201,7 +230,9 @@ void Window::BuildWorldUi()
             [this](const int index) { m_World->Pacer().SetRate(Rates[static_cast<std::size_t>(index)]); });
     connect(singleStep, &QPushButton::clicked, this, [this] {
         if (!m_World->Stepper().Step(Simulation::Api::TickCount{1}))
+        {
             m_Viewport->ReportStatus("Simulation tick overflow");
+        }
     });
 }
 
