@@ -20,7 +20,7 @@
         "UNREALVOXELSIM_BUILD_MOCKS": "ON",
         "UNREALVOXELSIM_BUILD_TESTS": "ON",
         "UNREALVOXELSIM_BUILD_BENCHMARKS": "OFF",
-        "VCPKG_INSTALLED_DIR": "${sourceDir}/o/wb/vi"
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/o/vi"
       }
     },
     {
