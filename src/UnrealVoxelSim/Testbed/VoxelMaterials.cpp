@@ -15,6 +15,7 @@ namespace UnrealVoxelSim::Testbed
 		using Voxel::Solid::Api::MaterialTraversal;
 		using Voxel::Solid::Api::StandardMaterials::Dirt;
 		using Voxel::Solid::Api::StandardMaterials::Grass;
+		using Voxel::Solid::Api::StandardMaterials::Leaves;
 		using Voxel::Solid::Api::StandardMaterials::Plank;
 		using Voxel::Solid::Api::StandardMaterials::Stone;
 		using Voxel::Solid::Api::StandardMaterials::Trunk;
@@ -34,6 +35,8 @@ namespace UnrealVoxelSim::Testbed
 		constexpr TextureKey DirtTexture{"dirt"};
 		constexpr TextureKey DirtGrassTexture{"dirt_grass"};
 		constexpr TextureKey GrassTopTexture{"grass_top"};
+		// TODO Use "C:\Users\DmitriyPC\Downloads\kenney_voxel-pack\PNG\Tiles\leaves.png" or "C:\Users\DmitriyPC\Downloads\kenney_voxel-pack\PNG\Tiles\leaves_transparent.png"
+		constexpr TextureKey LeavesTexture{"grass_top"};
 		constexpr TextureKey StoneTexture{"stone"};
 		constexpr TextureKey TrunkSideTexture{"trunk_side"};
 		constexpr TextureKey TrunkTopTexture{"trunk_top"};
@@ -75,6 +78,13 @@ namespace UnrealVoxelSim::Testbed
 				.Surface = SurfaceId{Plank.Value()},
 				.Appearance = All(WoodTexture),
 			},
+			VoxelMaterialDefinition{
+				.Material = Leaves,
+				.DisplayName = "Leaves",
+				.Traversal = MaterialTraversal{Leaves},
+				.Surface = SurfaceId{Leaves.Value()},
+				.Appearance = All(LeavesTexture),
+			},
 		};
 
 		constexpr std::array Bindings{
@@ -83,6 +93,7 @@ namespace UnrealVoxelSim::Testbed
 			MaterialSurfaceBinding{Stone, SurfaceId{Stone.Value()}},
 			MaterialSurfaceBinding{Trunk, SurfaceId{Trunk.Value()}},
 			MaterialSurfaceBinding{Plank, SurfaceId{Plank.Value()}},
+			MaterialSurfaceBinding{Leaves, SurfaceId{Leaves.Value()}},
 		};
 	}
 

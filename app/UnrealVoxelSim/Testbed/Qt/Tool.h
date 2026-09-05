@@ -8,6 +8,7 @@ enum class Tool
     Select,
     Fill,
     Erase,
+    PlantTree,
     Navigate,
 };
 

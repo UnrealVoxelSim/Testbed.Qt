@@ -167,6 +167,7 @@ void Window::BuildWorldUi()
     tool->addItem("Select", static_cast<int>(Tool::Select));
     tool->addItem("Fill", static_cast<int>(Tool::Fill));
     tool->addItem("Erase", static_cast<int>(Tool::Erase));
+    tool->addItem("Plant tree", static_cast<int>(Tool::PlantTree));
     tool->addItem("Navigate", static_cast<int>(Tool::Navigate));
     simulationRate->addItems({"Paused", "0.5x", "1x", "2x", "10x", "100x"});
     simulationRate->setCurrentIndex(2);

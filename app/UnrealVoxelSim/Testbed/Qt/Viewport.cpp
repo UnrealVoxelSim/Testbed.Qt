@@ -982,7 +982,7 @@ void Viewport::ApplyBrush(const QPoint &screenPosition)
         return;
     }
     auto center = hit->Cell;
-    if (m_Tool == Tool::Fill)
+    if (m_Tool == Tool::Fill || m_Tool == Tool::PlantTree)
     {
         center.X += hit->Normal.X;
         center.Y += hit->Normal.Y;
@@ -993,6 +993,17 @@ void Viewport::ApplyBrush(const QPoint &screenPosition)
         return;
     }
     m_LastBrushCell = center;
+
+    if (m_Tool == Tool::PlantTree)
+    {
+        if (hit->Normal.Z != 1)
+        {
+            m_Status = "Trees must be planted on an upward-facing voxel";
+            return;
+        }
+        m_Status = m_World.PlantTree(center) ? "Tree planted" : "Tree planting rejected";
+        return;
+    }
 
     const auto bounds = m_World.Bounds().GetBounds();
     const auto before = (m_BrushSize - 1) / 2;

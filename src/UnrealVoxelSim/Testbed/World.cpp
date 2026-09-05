@@ -13,6 +13,9 @@
 #include "UnrealVoxelSim/Simulation/Api/IStepParticipant.h"
 #include "UnrealVoxelSim/Spatial/Api/LinearVelocityComponent.h"
 #include "UnrealVoxelSim/Spatial/Api/PositionComponent.h"
+#include "UnrealVoxelSim/Trees/Api/CreateRequest.h"
+#include "UnrealVoxelSim/Trees/Api/ShapeSeed.h"
+#include "UnrealVoxelSim/Trees/Api/StandardSpecies.h"
 #include "UnrealVoxelSim/Voxel/Solid/Api/Cell.h"
 #include "UnrealVoxelSim/Voxel/Solid/Api/MaterialTraversal.h"
 #include "UnrealVoxelSim/Voxel/Solid/Api/Placement.h"
@@ -293,6 +296,15 @@ namespace UnrealVoxelSim::Testbed
 			}
 		}
 		return positions.empty() || m_Game->GetSolidVoxelRemover().Remove(positions).has_value();
+	}
+
+	bool World::PlantTree(const Voxel::Api::Position root)
+	{
+		const auto seed = static_cast<std::uint64_t>(static_cast<std::uint32_t>(root.X));
+		const auto mixed = seed ^ (static_cast<std::uint64_t>(static_cast<std::uint32_t>(root.Y)) << 21U) ^
+			(static_cast<std::uint64_t>(static_cast<std::uint32_t>(root.Z)) << 42U);
+		return m_Game->GetTreePlanter().Plant(
+			{root, Trees::Api::StandardSpecies::Oak, Trees::Api::ShapeSeed{mixed}}).has_value();
 	}
 
 	bool World::Navigate(const Ecs::Api::EntityId pawn, const Voxel::Api::Position destination)

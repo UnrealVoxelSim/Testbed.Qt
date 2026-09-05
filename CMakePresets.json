@@ -10,8 +10,6 @@
       "name": "base",
       "hidden": true,
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/o/${presetName}",
-      "installDir": "${sourceDir}/o/install/${presetName}",
       "cacheVariables": {
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
         "BUILD_SHARED_LIBS": "OFF",
@@ -21,7 +19,8 @@
         "UNREALVOXELSIM_BUILD_APP": "ON",
         "UNREALVOXELSIM_BUILD_MOCKS": "ON",
         "UNREALVOXELSIM_BUILD_TESTS": "ON",
-        "UNREALVOXELSIM_BUILD_BENCHMARKS": "OFF"
+        "UNREALVOXELSIM_BUILD_BENCHMARKS": "OFF",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/o/wb/vi"
       }
     },
     {
@@ -36,7 +35,8 @@
         "CMAKE_CXX_COMPILER": "cl.exe",
         "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>",
         "VCPKG_HOST_TRIPLET": "x64-windows-static",
-        "VCPKG_TARGET_TRIPLET": "x64-windows-static"
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static",
+        "UNREALVOXELSIM_BUILD_MODULE_LENGTH_LIMIT": "32"
       },
       "condition": {
         "type": "equals",
@@ -51,6 +51,8 @@
     },
     {
       "name": "windows-msvc-debug",
+      "binaryDir": "${sourceDir}/o/wdb",
+      "installDir": "${sourceDir}/o/wdi",
       "displayName": "Windows MSVC Debug",
       "inherits": "windows-msvc-base",
       "cacheVariables": {
@@ -59,6 +61,8 @@
     },
     {
       "name": "windows-msvc-release",
+      "binaryDir": "${sourceDir}/o/wrb",
+      "installDir": "${sourceDir}/o/wri",
       "displayName": "Windows MSVC Release",
       "inherits": "windows-msvc-base",
       "cacheVariables": {
@@ -66,7 +70,9 @@
       }
     },
     {
-      "name": "windows-msvc-profiling",
+      "name": "windows-msvc-prof",
+      "binaryDir": "${sourceDir}/o/wpb",
+      "installDir": "${sourceDir}/o/wpi",
       "displayName": "Windows MSVC Profiling",
       "inherits": "windows-msvc-release",
       "cacheVariables": {

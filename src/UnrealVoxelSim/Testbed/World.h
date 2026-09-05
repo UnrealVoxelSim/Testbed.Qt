@@ -86,6 +86,7 @@ namespace UnrealVoxelSim::Testbed
 		void SetTargetPopulation(std::size_t population);
 		[[nodiscard]] bool Fill(Voxel::Api::Region region, Voxel::Solid::Api::MaterialId material);
 		[[nodiscard]] bool Erase(Voxel::Api::Region region);
+		[[nodiscard]] bool PlantTree(Voxel::Api::Position root);
 		[[nodiscard]] bool Navigate(Ecs::Api::EntityId pawn, Voxel::Api::Position destination);
 		[[nodiscard]] RuntimeStats Stats() const noexcept;
 
