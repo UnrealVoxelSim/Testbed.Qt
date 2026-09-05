@@ -63,7 +63,7 @@ namespace UnrealVoxelSim::Testbed
 			WorldConfiguration{{"stress", "GetNavigation Stress", 1'000, true},
 							   {{-512, -512, -64}, {512, 512, 192}},
 							   {{-192, -192, 0}, {192, 192, 3}},
-							   {{-192, -192, 1}, {192, 192, 2}},
+							   {{-320, -320, 1}, {320, 320, 2}},
 							   1,
 							   2,
 							   TerrainKind::Flat},
