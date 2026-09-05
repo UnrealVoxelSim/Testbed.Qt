@@ -50,6 +50,7 @@ namespace UnrealVoxelSim::Testbed
 		[[nodiscard]] std::size_t TargetPopulation() const noexcept;
 		[[nodiscard]] std::size_t MaximumPopulation() const noexcept;
 		[[nodiscard]] bool IsAutonomous() const noexcept;
+		[[nodiscard]] std::size_t NavigationStarts() const noexcept;
 
 	private:
 		struct PawnComponent final
@@ -65,9 +66,7 @@ namespace UnrealVoxelSim::Testbed
 			bool ExternalCommandPending{};
 		};
 
-		using ActivePawnQuery = Ecs::Api::Query<Ecs::Api::Read<PawnComponent>>;
-
-		[[nodiscard]] std::vector<Ecs::Api::EntityId> ActivePawns() const;
+		[[nodiscard]] const std::vector<Ecs::Api::EntityId>& ActivePawns() const noexcept;
 		[[nodiscard]] std::uint64_t NextRandom(PawnStateComponent& state) const noexcept;
 		[[nodiscard]] std::int32_t
 		RandomCoordinate(PawnStateComponent& state, std::int32_t minimum, std::int32_t maximum) const noexcept;
@@ -84,5 +83,7 @@ namespace UnrealVoxelSim::Testbed
 
 		std::size_t m_TargetPopulation{};
 		std::size_t m_MaximumPopulation{};
+		std::vector<Ecs::Api::EntityId> m_ActivePawns;
+		std::size_t m_NavigationStarts{};
 	};
 } // namespace UnrealVoxelSim::Testbed

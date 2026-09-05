@@ -46,6 +46,7 @@ namespace UnrealVoxelSim::Testbed
 	{
 		Simulation::Api::TickIndex Tick;
 		std::size_t PawnCount{};
+		std::size_t NavigationStarts{};
 		std::array<std::size_t, 6> NavigationCounts{};
 	};
 

@@ -12,7 +12,6 @@
 #include <algorithm>
 #include <limits>
 #include <stdexcept>
-#include <utility>
 
 namespace UnrealVoxelSim::Testbed
 {
@@ -57,13 +56,12 @@ namespace UnrealVoxelSim::Testbed
 	{
 		UNREALVOXELSIM_PROFILE_ZONE(m_Profiling, "Pawn population resize");
 		m_TargetPopulation = std::min(population, m_MaximumPopulation);
-		auto pawns = ActivePawns();
-		for (std::size_t index = pawns.size(); index < m_TargetPopulation; ++index)
+		for (std::size_t index = m_ActivePawns.size(); index < m_TargetPopulation; ++index)
 			CreatePawn(index);
-		while (pawns.size() > m_TargetPopulation)
+		while (m_ActivePawns.size() > m_TargetPopulation)
 		{
-			RemovePawn(pawns.back());
-			pawns.pop_back();
+			RemovePawn(m_ActivePawns.back());
+			m_ActivePawns.pop_back();
 		}
 	}
 
@@ -81,7 +79,7 @@ namespace UnrealVoxelSim::Testbed
 	void PawnController::Step(const Simulation::Api::StepContext context)
 	{
 		UNREALVOXELSIM_PROFILE_ZONE(m_Profiling, "Pawn controller update");
-		const auto pawns = ActivePawns();
+		const auto& pawns = ActivePawns();
 		std::size_t started{};
 		if (m_Configuration.AutonomousNavigation)
 		{
@@ -125,25 +123,14 @@ namespace UnrealVoxelSim::Testbed
 
 		UNREALVOXELSIM_PROFILE_PLOT(m_Profiling, "Pawn population", pawns.size());
 		UNREALVOXELSIM_PROFILE_PLOT(m_Profiling, "Pawn navigation starts", started);
+		m_NavigationStarts += started;
 	}
 
-	std::vector<Ecs::Api::EntityId> PawnController::Entities() const { return ActivePawns(); }
+	std::vector<Ecs::Api::EntityId> PawnController::Entities() const { return m_ActivePawns; }
 
-	std::vector<Ecs::Api::EntityId> PawnController::ActivePawns() const
+	const std::vector<Ecs::Api::EntityId>& PawnController::ActivePawns() const noexcept
 	{
-		std::vector<std::pair<Ecs::Api::EntityId, std::size_t>> ordered;
-		const auto& registry = static_cast<const Ecs::EnTT::Registry&>(m_EntitiesRegistry);
-		registry.ForEach(ActivePawnQuery{},
-		                [&ordered](const Ecs::Api::EntityId entity, const PawnComponent& pawn)
-		                { ordered.emplace_back(entity, pawn.Slot); });
-		std::sort(ordered.begin(), ordered.end(),
-		          [](const auto& left, const auto& right) { return left.second < right.second; });
-
-		std::vector<Ecs::Api::EntityId> result;
-		result.reserve(ordered.size());
-		for (const auto& item : ordered)
-			result.push_back(item.first);
-		return result;
+		return m_ActivePawns;
 	}
 
 	std::size_t PawnController::TargetPopulation() const noexcept { return m_TargetPopulation; }
@@ -151,6 +138,8 @@ namespace UnrealVoxelSim::Testbed
 	std::size_t PawnController::MaximumPopulation() const noexcept { return m_MaximumPopulation; }
 
 	bool PawnController::IsAutonomous() const noexcept { return m_Configuration.AutonomousNavigation; }
+
+	std::size_t PawnController::NavigationStarts() const noexcept { return m_NavigationStarts; }
 
 	std::uint64_t PawnController::NextRandom(PawnStateComponent& state) const noexcept
 	{
@@ -237,6 +226,7 @@ namespace UnrealVoxelSim::Testbed
 			static_cast<void>(m_EntitiesRegistry.Destroy(entity));
 			throw std::runtime_error{"A navigation pawn could not receive neutral movement intent."};
 		}
+		m_ActivePawns.push_back(entity);
 	}
 
 	void PawnController::RemovePawn(const Ecs::Api::EntityId entity)

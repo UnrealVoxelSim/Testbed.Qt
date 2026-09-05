@@ -332,9 +332,10 @@ namespace UnrealVoxelSim::Testbed
 
 	RuntimeStats World::Stats() const noexcept
 	{
-		RuntimeStats result{m_Game->GetSimulationStepper().CurrentTick(), m_Pawns->Entities().size()};
+		const auto pawns = m_Pawns->Entities();
+		RuntimeStats result{m_Game->GetSimulationStepper().CurrentTick(), pawns.size(), m_Pawns->NavigationStarts()};
 		const auto& entities = m_Game->GetEcsRegistry();
-		for (const auto pawn : m_Pawns->Entities())
+		for (const auto pawn : pawns)
 		{
 			const auto execution = entities.Get<Navigation::Api::ExecutionStateComponent>(pawn);
 			if (!execution)

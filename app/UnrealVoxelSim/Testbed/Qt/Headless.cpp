@@ -6,6 +6,7 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <chrono>
 #include <cstddef>
@@ -20,12 +21,78 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace
 {
 namespace ProfilingApi = UnrealVoxelSim::Profiling::Api;
 namespace SimulationApi = UnrealVoxelSim::Simulation::Api;
+
+class TimingRecorder final : public ProfilingApi::IRecorder
+{
+public:
+    struct ZoneStats final
+    {
+        std::uint64_t Nanoseconds{};
+        std::size_t Count{};
+    };
+
+    explicit TimingRecorder(ProfilingApi::IRecorder& underlying) noexcept : m_Underlying(underlying) {}
+
+    [[nodiscard]] ProfilingApi::ZoneToken BeginZone(const ProfilingApi::SourceLocation& location) noexcept override
+    {
+        try
+        {
+            const auto token = m_Underlying.BeginZone(location);
+            m_Active.push_back({location.Name, std::chrono::steady_clock::now(), token});
+            return {static_cast<std::uint64_t>(m_Active.size())};
+        }
+        catch (...)
+        {
+            return {};
+        }
+    }
+
+    void EndZone(const ProfilingApi::ZoneToken token) noexcept override
+    {
+        if (token.Payload == 0 || token.Payload != m_Active.size()) return;
+        const auto entry = m_Active.back();
+        m_Active.pop_back();
+        m_Underlying.EndZone(entry.Token);
+        const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - entry.Start).count();
+        auto& stats = m_Stats[entry.Name];
+        stats.Nanoseconds += static_cast<std::uint64_t>(elapsed);
+        ++stats.Count;
+    }
+
+    void MarkFrame(const char* name) noexcept override { m_Underlying.MarkFrame(name); }
+    void Plot(const char* name, double value) noexcept override { m_Underlying.Plot(name, value); }
+    void Message(std::string_view message) noexcept override { m_Underlying.Message(message); }
+    void SetThreadName(const char* name) noexcept override { m_Underlying.SetThreadName(name); }
+    [[nodiscard]] bool IsConnected() const noexcept override { return m_Underlying.IsConnected(); }
+
+    void Reset() noexcept
+    {
+        m_Stats.clear();
+        m_Active.clear();
+    }
+
+    [[nodiscard]] const std::unordered_map<std::string, ZoneStats>& Stats() const noexcept { return m_Stats; }
+
+private:
+    struct ActiveZone final
+    {
+        const char* Name{};
+        std::chrono::steady_clock::time_point Start;
+        ProfilingApi::ZoneToken Token;
+    };
+
+    ProfilingApi::IRecorder& m_Underlying;
+    std::vector<ActiveZone> m_Active;
+    std::unordered_map<std::string, ZoneStats> m_Stats;
+};
 
 struct Options final
 {
@@ -99,10 +166,12 @@ struct Result final
     double MinimumStepsPerSecond{};
     double MedianStepsPerSecond{};
     double MaximumStepsPerSecond{};
+    std::size_t NavigationStarts{};
+    std::array<std::size_t, 6> NavigationCounts{};
 };
 
 [[nodiscard]] Result MeasurePopulation(const std::string_view worldId, const std::size_t population,
-                                       const Options &options, ProfilingApi::IRecorder &profiling)
+                                       const Options &options, TimingRecorder &profiling)
 {
     UNREALVOXELSIM_PROFILE_ZONE(profiling, "Headless population run");
     auto world = UnrealVoxelSim::Testbed::WorldCatalog::Create(worldId, profiling);
@@ -112,6 +181,9 @@ struct Result final
 
     if (const auto warmup = world->Stepper().Step(SimulationApi::TickCount{options.WarmupSteps}); !warmup)
         throw std::overflow_error{"Simulation tick overflow during warm-up."};
+
+    const auto measurementStart = world->Stats();
+    profiling.Reset();
 
     std::vector<double> rates;
     rates.reserve(options.Samples);
@@ -129,7 +201,21 @@ struct Result final
     std::ranges::sort(rates);
     UNREALVOXELSIM_PROFILE_PLOT(profiling, "Headless measured population", population);
     UNREALVOXELSIM_PROFILE_PLOT(profiling, "Headless maximum steps per second", rates.back());
-    return {rates.front(), rates[rates.size() / 2], rates.back()};
+    const auto measurementEnd = world->Stats();
+    std::vector<std::pair<std::string, TimingRecorder::ZoneStats>> zones;
+    for (const auto& entry : profiling.Stats()) zones.push_back(entry);
+    std::ranges::sort(zones, [](const auto& left, const auto& right)
+                      { return left.second.Nanoseconds > right.second.Nanoseconds; });
+    std::cout << "phases,population,"
+                 "name,total_ms_per_step,calls_per_step\n";
+    for (const auto& [name, stats] : zones)
+        std::cout << "phase," << population << ',' << name << ','
+                  << (static_cast<double>(stats.Nanoseconds) /
+                      (options.StepsPerSample * options.Samples) / 1'000'000.0) << ','
+                  << (static_cast<double>(stats.Count) / (options.StepsPerSample * options.Samples)) << '\n';
+    return {rates.front(), rates[rates.size() / 2], rates.back(),
+            measurementEnd.NavigationStarts - measurementStart.NavigationStarts,
+            measurementEnd.NavigationCounts};
 }
 }
 
@@ -139,25 +225,31 @@ int main(const int argc, char *argv[])
     {
         const auto options = ParseOptions({argv, static_cast<std::size_t>(argc)});
 #if defined(UNREALVOXELSIM_PROFILING_ENABLED)
-        UnrealVoxelSim::Profiling::Tracy::Recorder profiling;
+        UnrealVoxelSim::Profiling::Tracy::Recorder baseProfiling;
         constexpr auto profilingEnabled = true;
 #else
-        UnrealVoxelSim::Profiling::Api::NullRecorder profiling;
+        UnrealVoxelSim::Profiling::Api::NullRecorder baseProfiling;
         constexpr auto profilingEnabled = false;
 #endif
+        TimingRecorder profiling{baseProfiling};
         UNREALVOXELSIM_PROFILE_THREAD(profiling, "Headless simulation");
         std::cout << "# world=" << options.World << ",profiling_enabled=" << (profilingEnabled ? 1 : 0)
                   << ",profiling_connected=" << (profiling.IsConnected() ? 1 : 0)
                   << ",hardware_threads=" << std::thread::hardware_concurrency() << '\n';
         std::cout << "entities,warmup_steps,steps_per_sample,samples,min_steps_per_second,median_steps_per_second,"
-                     "max_steps_per_second\n";
+                     "max_steps_per_second,navigation_starts,planning,following,replanning,arrived,unreachable,"
+                     "cancelled\n";
         std::cout << std::fixed << std::setprecision(2);
         for (const auto population : options.Populations)
         {
             const auto result = MeasurePopulation(options.World, population, options, profiling);
             std::cout << population << ',' << options.WarmupSteps << ',' << options.StepsPerSample << ','
                       << options.Samples << ',' << result.MinimumStepsPerSecond << ','
-                      << result.MedianStepsPerSecond << ',' << result.MaximumStepsPerSecond << '\n';
+                      << result.MedianStepsPerSecond << ',' << result.MaximumStepsPerSecond << ','
+                      << result.NavigationStarts;
+            for (const auto count : result.NavigationCounts)
+                std::cout << ',' << count;
+            std::cout << '\n';
             std::cout.flush();
         }
         return 0;
